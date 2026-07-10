@@ -35,6 +35,32 @@ body {
   flex-wrap: wrap;
 }
 
+.field-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-bottom: 0.75rem;
+}
+
+label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.95rem;
+}
+
+input,
+select {
+  border-radius: 8px;
+  border: 1px solid #7776;
+  padding: 0.45rem 0.55rem;
+  background: transparent;
+}
+
+.inline-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
 button {
   border-radius: 8px;
   border: 1px solid #7776;

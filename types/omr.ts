@@ -88,6 +88,7 @@ export interface OMRResultJson {
 
 export interface ScanRecord {
   id: string;
+  scan_session_id: string;
   template_id: string;
   source_name: string;
   result_json: OMRResultJson;
