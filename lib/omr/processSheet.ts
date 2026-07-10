@@ -1,0 +1,222 @@
+import { defaultSheetTemplate } from "@/lib/templates/defaultSheetTemplate";
+import {
+  computeChoiceScores,
+  normalizeRegion,
+  pickSelections,
+  regionShadeScore,
+  scoreAnswer
+} from "@/lib/omr/bubbleScoring";
+import { loadOpenCv } from "@/lib/omr/opencvLoader";
+import type { CvMat } from "@/lib/omr/opencvLoader";
+import type { CornerMarker, OMRResultJson } from "@/types/omr";
+
+const loadImageElement = (file: File) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Failed to decode image."));
+    };
+    image.src = url;
+  });
+
+interface PreprocessedSheet {
+  thresholded: CvMat;
+  warped: boolean;
+}
+
+interface CornerPoint {
+  x: number;
+  y: number;
+}
+
+const fallbackCornerPoint = (marker: CornerMarker, width: number, height: number): CornerPoint => ({
+  x: (marker.x + marker.w / 2) * width,
+  y: (marker.y + marker.h / 2) * height
+});
+
+const detectCornerPoint = (thresholded: CvMat, marker: CornerMarker): CornerPoint => {
+  const rect = normalizeRegion(marker, thresholded.cols, thresholded.rows);
+  const roi = thresholded.roi(rect);
+  let count = 0;
+  let sumX = 0;
+  let sumY = 0;
+
+  for (let y = 0; y < rect.height; y += 1) {
+    for (let x = 0; x < rect.width; x += 1) {
+      if (roi.ucharPtr(y, x)[0] > 0) {
+        count += 1;
+        sumX += x;
+        sumY += y;
+      }
+    }
+  }
+
+  roi.delete();
+
+  if (count < rect.width * rect.height * 0.01) {
+    return fallbackCornerPoint(marker, thresholded.cols, thresholded.rows);
+  }
+
+  return {
+    x: rect.x + sumX / count,
+    y: rect.y + sumY / count
+  };
+};
+
+const rectifyWithCornerMarkers = (
+  cv: typeof window.cv,
+  gray: CvMat,
+  thresholded: CvMat
+): PreprocessedSheet => {
+  const width = thresholded.cols;
+  const height = thresholded.rows;
+  const orderedMarkers: CornerMarker[] = [
+    defaultSheetTemplate.cornerMarkers.find((marker) => marker.id === "tl"),
+    defaultSheetTemplate.cornerMarkers.find((marker) => marker.id === "tr"),
+    defaultSheetTemplate.cornerMarkers.find((marker) => marker.id === "br"),
+    defaultSheetTemplate.cornerMarkers.find((marker) => marker.id === "bl")
+  ].filter((marker): marker is CornerMarker => Boolean(marker));
+
+  if (orderedMarkers.length !== 4) {
+    return { thresholded, warped: false };
+  }
+
+  const corners = orderedMarkers.map((marker) => detectCornerPoint(thresholded, marker));
+  const src = cv.matFromArray(
+    4,
+    1,
+    cv.CV_32FC2,
+    corners.flatMap((corner) => [corner.x, corner.y])
+  );
+  const dst = cv.matFromArray(4, 1, cv.CV_32FC2, [
+    0, 0,
+    width - 1, 0,
+    width - 1, height - 1,
+    0, height - 1
+  ]);
+  const transform = cv.getPerspectiveTransform(src, dst);
+  const warpedGray = new cv.Mat() as CvMat;
+  cv.warpPerspective(
+    gray,
+    warpedGray,
+    transform,
+    new cv.Size(width, height),
+    cv.INTER_LINEAR,
+    cv.BORDER_CONSTANT
+  );
+  const warpedBinary = new cv.Mat() as CvMat;
+  cv.adaptiveThreshold(
+    warpedGray,
+    warpedBinary,
+    255,
+    cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+    cv.THRESH_BINARY_INV,
+    17,
+    5
+  );
+
+  src.delete();
+  dst.delete();
+  transform.delete();
+  warpedGray.delete();
+  thresholded.delete();
+
+  return {
+    thresholded: warpedBinary,
+    warped: true
+  };
+};
+
+const toThresholdedMat = async (file: File): Promise<PreprocessedSheet> => {
+  const cv = await loadOpenCv();
+  const image = await loadImageElement(file);
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("Unable to initialize canvas context.");
+  }
+  ctx.drawImage(image, 0, 0);
+
+  const src = cv.imread(canvas);
+  const gray = new cv.Mat() as CvMat;
+  const blurred = new cv.Mat() as CvMat;
+  const binary = new cv.Mat() as CvMat;
+  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+  cv.GaussianBlur(gray, blurred, { width: 5, height: 5 }, 0, 0);
+  cv.adaptiveThreshold(
+    blurred,
+    binary,
+    255,
+    cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+    cv.THRESH_BINARY_INV,
+    17,
+    5
+  );
+  src.delete();
+  blurred.delete();
+  const rectified = rectifyWithCornerMarkers(cv, gray, binary);
+  gray.delete();
+  return rectified;
+};
+
+const scoreDigitColumns = (thresholded: CvMat, columns: { x: number; y: number; w: number; h: number }[][]) => {
+  const shadeScores = columns.map((column) =>
+    column.map((bubble) => regionShadeScore(thresholded, bubble))
+  );
+  const detected = shadeScores.map((scores) => {
+    let bestIndex = 0;
+    let bestScore = -1;
+    scores.forEach((score, index) => {
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = index;
+      }
+    });
+    return bestIndex;
+  });
+  return { detected, shadeScores };
+};
+
+export const processSheetFile = async (file: File): Promise<OMRResultJson> => {
+  const preprocessed = await toThresholdedMat(file);
+  const thresholded = preprocessed.thresholded;
+  try {
+    const studentId = scoreDigitColumns(thresholded, defaultSheetTemplate.studentId.columns);
+    const examCode = scoreDigitColumns(thresholded, defaultSheetTemplate.examCode.columns);
+    const examSetScores = computeChoiceScores(thresholded, defaultSheetTemplate.examSet.choices);
+    const examSetDecision = pickSelections(examSetScores);
+    const answers = defaultSheetTemplate.answers.map((item) =>
+      scoreAnswer(item.question, thresholded, item.choices)
+    );
+
+    return {
+      templateId: defaultSheetTemplate.id,
+      student: {
+        studentId,
+        examCode,
+        examSet: {
+          selected: examSetDecision.selected,
+          shadeScores: examSetScores,
+          confidence: examSetDecision.confidence,
+          ambiguous: examSetDecision.ambiguous
+        }
+      },
+      answers,
+      pipeline: {
+        warped: preprocessed.warped,
+        width: thresholded.cols,
+        height: thresholded.rows
+      }
+    };
+  } finally {
+    thresholded.delete();
+  }
+};
