@@ -62,5 +62,5 @@ No raw image blobs are stored in Supabase by default.
 ## Notes
 
 - Current version performs threshold-based bubble scoring and returns JSON marks/shades.
-- Corner-marker perspective correction hook is prepared, but this baseline keeps `pipeline.warped = false`.
+- Corner-marker perspective correction is enabled using the four corner blocks from the template.
 - For production, tune region coordinates and thresholds using real scans from your printer/camera setup.

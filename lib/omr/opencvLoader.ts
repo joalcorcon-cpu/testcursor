@@ -1,8 +1,15 @@
 declare global {
   interface Window {
     cv: {
-      Mat: new () => unknown;
+      Mat: new () => CvMat;
+      Size: new (width: number, height: number) => { width: number; height: number };
       imread: (canvas: HTMLCanvasElement) => CvMat;
+      matFromArray: (
+        rows: number,
+        cols: number,
+        type: number,
+        array: number[]
+      ) => CvMat;
       cvtColor: (src: CvMat, dst: CvMat, code: number) => void;
       GaussianBlur: (
         src: CvMat,
@@ -21,9 +28,21 @@ declare global {
         blockSize: number,
         c: number
       ) => void;
+      getPerspectiveTransform: (src: CvMat, dst: CvMat) => CvMat;
+      warpPerspective: (
+        src: CvMat,
+        dst: CvMat,
+        m: CvMat,
+        dsize: { width: number; height: number },
+        flags?: number,
+        borderMode?: number
+      ) => void;
       COLOR_RGBA2GRAY: number;
       ADAPTIVE_THRESH_GAUSSIAN_C: number;
       THRESH_BINARY_INV: number;
+      CV_32FC2: number;
+      INTER_LINEAR: number;
+      BORDER_CONSTANT: number;
     };
   }
 }

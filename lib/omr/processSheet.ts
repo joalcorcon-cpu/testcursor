@@ -1,13 +1,14 @@
 import { defaultSheetTemplate } from "@/lib/templates/defaultSheetTemplate";
 import {
   computeChoiceScores,
+  normalizeRegion,
   pickSelections,
   regionShadeScore,
   scoreAnswer
 } from "@/lib/omr/bubbleScoring";
 import { loadOpenCv } from "@/lib/omr/opencvLoader";
 import type { CvMat } from "@/lib/omr/opencvLoader";
-import type { OMRResultJson } from "@/types/omr";
+import type { CornerMarker, OMRResultJson } from "@/types/omr";
 
 const loadImageElement = (file: File) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
@@ -24,7 +25,115 @@ const loadImageElement = (file: File) =>
     image.src = url;
   });
 
-const toThresholdedMat = async (file: File): Promise<CvMat> => {
+interface PreprocessedSheet {
+  thresholded: CvMat;
+  warped: boolean;
+}
+
+interface CornerPoint {
+  x: number;
+  y: number;
+}
+
+const fallbackCornerPoint = (marker: CornerMarker, width: number, height: number): CornerPoint => ({
+  x: (marker.x + marker.w / 2) * width,
+  y: (marker.y + marker.h / 2) * height
+});
+
+const detectCornerPoint = (thresholded: CvMat, marker: CornerMarker): CornerPoint => {
+  const rect = normalizeRegion(marker, thresholded.cols, thresholded.rows);
+  const roi = thresholded.roi(rect);
+  let count = 0;
+  let sumX = 0;
+  let sumY = 0;
+
+  for (let y = 0; y < rect.height; y += 1) {
+    for (let x = 0; x < rect.width; x += 1) {
+      if (roi.ucharPtr(y, x)[0] > 0) {
+        count += 1;
+        sumX += x;
+        sumY += y;
+      }
+    }
+  }
+
+  roi.delete();
+
+  if (count < rect.width * rect.height * 0.01) {
+    return fallbackCornerPoint(marker, thresholded.cols, thresholded.rows);
+  }
+
+  return {
+    x: rect.x + sumX / count,
+    y: rect.y + sumY / count
+  };
+};
+
+const rectifyWithCornerMarkers = (
+  cv: typeof window.cv,
+  gray: CvMat,
+  thresholded: CvMat
+): PreprocessedSheet => {
+  const width = thresholded.cols;
+  const height = thresholded.rows;
+  const orderedMarkers: CornerMarker[] = [
+    defaultSheetTemplate.cornerMarkers.find((marker) => marker.id === "tl"),
+    defaultSheetTemplate.cornerMarkers.find((marker) => marker.id === "tr"),
+    defaultSheetTemplate.cornerMarkers.find((marker) => marker.id === "br"),
+    defaultSheetTemplate.cornerMarkers.find((marker) => marker.id === "bl")
+  ].filter((marker): marker is CornerMarker => Boolean(marker));
+
+  if (orderedMarkers.length !== 4) {
+    return { thresholded, warped: false };
+  }
+
+  const corners = orderedMarkers.map((marker) => detectCornerPoint(thresholded, marker));
+  const src = cv.matFromArray(
+    4,
+    1,
+    cv.CV_32FC2,
+    corners.flatMap((corner) => [corner.x, corner.y])
+  );
+  const dst = cv.matFromArray(4, 1, cv.CV_32FC2, [
+    0, 0,
+    width - 1, 0,
+    width - 1, height - 1,
+    0, height - 1
+  ]);
+  const transform = cv.getPerspectiveTransform(src, dst);
+  const warpedGray = new cv.Mat() as CvMat;
+  cv.warpPerspective(
+    gray,
+    warpedGray,
+    transform,
+    new cv.Size(width, height),
+    cv.INTER_LINEAR,
+    cv.BORDER_CONSTANT
+  );
+  const warpedBinary = new cv.Mat() as CvMat;
+  cv.adaptiveThreshold(
+    warpedGray,
+    warpedBinary,
+    255,
+    cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+    cv.THRESH_BINARY_INV,
+    17,
+    5
+  );
+
+  src.delete();
+  dst.delete();
+  transform.delete();
+  warpedGray.delete();
+  thresholded.delete();
+
+  return {
+    thresholded: warpedBinary,
+    warped: true
+  };
+};
+
+const toThresholdedMat = async (file: File): Promise<PreprocessedSheet> => {
   const cv = await loadOpenCv();
   const image = await loadImageElement(file);
   const canvas = document.createElement("canvas");
@@ -52,9 +161,10 @@ const toThresholdedMat = async (file: File): Promise<CvMat> => {
     5
   );
   src.delete();
-  gray.delete();
   blurred.delete();
-  return binary;
+  const rectified = rectifyWithCornerMarkers(cv, gray, binary);
+  gray.delete();
+  return rectified;
 };
 
 const scoreDigitColumns = (thresholded: CvMat, columns: { x: number; y: number; w: number; h: number }[][]) => {
@@ -76,7 +186,8 @@ const scoreDigitColumns = (thresholded: CvMat, columns: { x: number; y: number; 
 };
 
 export const processSheetFile = async (file: File): Promise<OMRResultJson> => {
-  const thresholded = await toThresholdedMat(file);
+  const preprocessed = await toThresholdedMat(file);
+  const thresholded = preprocessed.thresholded;
   try {
     const studentId = scoreDigitColumns(thresholded, defaultSheetTemplate.studentId.columns);
     const examCode = scoreDigitColumns(thresholded, defaultSheetTemplate.examCode.columns);
@@ -100,7 +211,7 @@ export const processSheetFile = async (file: File): Promise<OMRResultJson> => {
       },
       answers,
       pipeline: {
-        warped: false,
+        warped: preprocessed.warped,
         width: thresholded.cols,
         height: thresholded.rows
       }
