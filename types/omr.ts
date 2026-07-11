@@ -49,6 +49,12 @@ export interface OMRTemplate {
   cornerMarkers: CornerMarker[];
   cornerSearchWindows?: Partial<Record<CornerMarker["id"], BubbleRegion>>;
   cornerSnapshots?: Partial<Record<CornerMarker["id"], CornerSnapshot>>;
+  roiCalibrationBoxes?: Partial<
+    Record<
+      "studentId" | "examCode" | "examSet" | "answersCol1" | "answersCol2" | "answersCol3",
+      BubbleRegion
+    >
+  >;
   studentId: DigitColumnRegion;
   examCode: DigitColumnRegion;
   examSet: ExamSetRegion;

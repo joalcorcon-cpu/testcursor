@@ -91,6 +91,25 @@ const buildAnswersForColumn = (
   });
 
 export const deriveRoiBoxesFromTemplate = (template: OMRTemplate): RoiBoxVisual[] => {
+  const storedBoxes = template.roiCalibrationBoxes;
+  if (
+    storedBoxes?.studentId &&
+    storedBoxes.examCode &&
+    storedBoxes.examSet &&
+    storedBoxes.answersCol1 &&
+    storedBoxes.answersCol2 &&
+    storedBoxes.answersCol3
+  ) {
+    return [
+      { id: "studentId", ...storedBoxes.studentId },
+      { id: "examCode", ...storedBoxes.examCode },
+      { id: "examSet", ...storedBoxes.examSet },
+      { id: "answersCol1", ...storedBoxes.answersCol1 },
+      { id: "answersCol2", ...storedBoxes.answersCol2 },
+      { id: "answersCol3", ...storedBoxes.answersCol3 }
+    ];
+  }
+
   const studentBounds = regionBounds(flattenRegions(template.studentId.columns));
   const examCodeBounds = regionBounds(flattenRegions(template.examCode.columns));
   const examSetBounds = regionBounds(Object.values(template.examSet.choices));
@@ -147,6 +166,14 @@ export const applyRoiBoxesToTemplate = (
 
   return {
     ...template,
+    roiCalibrationBoxes: {
+      studentId: studentBox,
+      examCode: examCodeBox,
+      examSet: examSetBox,
+      answersCol1: answersCol1Box,
+      answersCol2: answersCol2Box,
+      answersCol3: answersCol3Box
+    },
     studentId: {
       ...template.studentId,
       columns: buildDigitColumnsFromBox(
