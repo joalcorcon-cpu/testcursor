@@ -27,27 +27,68 @@ const regionBounds = (regions: BubbleRegion[]): BubbleRegion => {
   return { x: left, y: top, w: right - left, h: bottom - top };
 };
 
-const mapRegion = (
-  region: BubbleRegion,
-  sourceBounds: BubbleRegion,
-  targetBounds: BubbleRegion
-): BubbleRegion => {
-  const nx = sourceBounds.w > 0 ? (region.x - sourceBounds.x) / sourceBounds.w : 0;
-  const ny = sourceBounds.h > 0 ? (region.y - sourceBounds.y) / sourceBounds.h : 0;
-  const nw = sourceBounds.w > 0 ? region.w / sourceBounds.w : 0;
-  const nh = sourceBounds.h > 0 ? region.h / sourceBounds.h : 0;
-  return {
-    x: targetBounds.x + nx * targetBounds.w,
-    y: targetBounds.y + ny * targetBounds.h,
-    w: nw * targetBounds.w,
-    h: nh * targetBounds.h
-  };
-};
-
 const toBoxMap = (boxes: RoiBoxVisual[]) =>
   new Map<RoiBoxId, BubbleRegion>(
     boxes.map((box) => [box.id, { x: box.x, y: box.y, w: box.w, h: box.h }])
   );
+
+const makeCellBubble = (
+  box: BubbleRegion,
+  cols: number,
+  rows: number,
+  colIndex: number,
+  rowIndex: number,
+  fill = 0.64
+): BubbleRegion => {
+  const cellWidth = box.w / Math.max(1, cols);
+  const cellHeight = box.h / Math.max(1, rows);
+  const bubbleSize = Math.max(0.002, Math.min(cellWidth, cellHeight) * fill);
+  const centerX = box.x + cellWidth * (colIndex + 0.5);
+  const centerY = box.y + cellHeight * (rowIndex + 0.5);
+  return {
+    x: centerX - bubbleSize / 2,
+    y: centerY - bubbleSize / 2,
+    w: bubbleSize,
+    h: bubbleSize
+  };
+};
+
+const buildDigitColumnsFromBox = (box: BubbleRegion, digits: number, rows: number): BubbleRegion[][] => {
+  const columns: BubbleRegion[][] = [];
+  for (let col = 0; col < digits; col += 1) {
+    const bubbles: BubbleRegion[] = [];
+    for (let row = 0; row < rows; row += 1) {
+      bubbles.push(makeCellBubble(box, digits, rows, col, row));
+    }
+    columns.push(bubbles);
+  }
+  return columns;
+};
+
+const buildExamSetChoicesFromBox = (box: BubbleRegion) => ({
+  A: makeCellBubble(box, 4, 1, 0, 0),
+  B: makeCellBubble(box, 4, 1, 1, 0),
+  C: makeCellBubble(box, 4, 1, 2, 0),
+  D: makeCellBubble(box, 4, 1, 3, 0)
+});
+
+const buildAnswersForColumn = (
+  box: BubbleRegion,
+  startQuestion: number,
+  count: number
+) =>
+  Array.from({ length: count }, (_, idx) => {
+    const question = startQuestion + idx;
+    return {
+      question,
+      choices: {
+        A: makeCellBubble(box, 4, count, 0, idx),
+        B: makeCellBubble(box, 4, count, 1, idx),
+        C: makeCellBubble(box, 4, count, 2, idx),
+        D: makeCellBubble(box, 4, count, 3, idx)
+      }
+    };
+  });
 
 export const deriveRoiBoxesFromTemplate = (template: OMRTemplate): RoiBoxVisual[] => {
   const studentBounds = regionBounds(flattenRegions(template.studentId.columns));
@@ -83,64 +124,53 @@ export const applyRoiBoxesToTemplate = (
   template: OMRTemplate,
   nextRoiBoxes: RoiBoxVisual[]
 ): OMRTemplate => {
-  const sourceBoxes = toBoxMap(deriveRoiBoxesFromTemplate(template));
   const targetBoxes = toBoxMap(nextRoiBoxes);
-
-  const getMapping = (id: RoiBoxId): { source: BubbleRegion; target: BubbleRegion } => {
-    const source = sourceBoxes.get(id);
-    if (!source) {
-      throw new Error(`Source ROI not found for ${id}`);
+  const defaults = toBoxMap(deriveRoiBoxesFromTemplate(template));
+  const resolve = (id: RoiBoxId): BubbleRegion => {
+    const fromTarget = targetBoxes.get(id);
+    if (fromTarget) {
+      return fromTarget;
     }
-    const target = targetBoxes.get(id) ?? source;
-    return { source, target };
+    const fallback = defaults.get(id);
+    if (!fallback) {
+      throw new Error(`Missing ROI box for ${id}`);
+    }
+    return fallback;
   };
 
-  const studentMap = getMapping("studentId");
-  const examCodeMap = getMapping("examCode");
-  const examSetMap = getMapping("examSet");
-  const answersCol1Map = getMapping("answersCol1");
-  const answersCol2Map = getMapping("answersCol2");
-  const answersCol3Map = getMapping("answersCol3");
+  const studentBox = resolve("studentId");
+  const examCodeBox = resolve("examCode");
+  const examSetBox = resolve("examSet");
+  const answersCol1Box = resolve("answersCol1");
+  const answersCol2Box = resolve("answersCol2");
+  const answersCol3Box = resolve("answersCol3");
 
   return {
     ...template,
     studentId: {
       ...template.studentId,
-      columns: template.studentId.columns.map((column) =>
-        column.map((bubble) => mapRegion(bubble, studentMap.source, studentMap.target))
+      columns: buildDigitColumnsFromBox(
+        studentBox,
+        template.studentId.digits,
+        template.studentId.bubbleRows
       )
     },
     examCode: {
       ...template.examCode,
-      columns: template.examCode.columns.map((column) =>
-        column.map((bubble) => mapRegion(bubble, examCodeMap.source, examCodeMap.target))
+      columns: buildDigitColumnsFromBox(
+        examCodeBox,
+        template.examCode.digits,
+        template.examCode.bubbleRows
       )
     },
     examSet: {
       ...template.examSet,
-      choices: {
-        A: mapRegion(template.examSet.choices.A, examSetMap.source, examSetMap.target),
-        B: mapRegion(template.examSet.choices.B, examSetMap.source, examSetMap.target),
-        C: mapRegion(template.examSet.choices.C, examSetMap.source, examSetMap.target),
-        D: mapRegion(template.examSet.choices.D, examSetMap.source, examSetMap.target)
-      }
+      choices: buildExamSetChoicesFromBox(examSetBox)
     },
-    answers: template.answers.map((item) => {
-      const answerMap =
-        item.question <= 35
-          ? answersCol1Map
-          : item.question <= 70
-            ? answersCol2Map
-            : answersCol3Map;
-      return {
-        ...item,
-        choices: {
-          A: mapRegion(item.choices.A, answerMap.source, answerMap.target),
-          B: mapRegion(item.choices.B, answerMap.source, answerMap.target),
-          C: mapRegion(item.choices.C, answerMap.source, answerMap.target),
-          D: mapRegion(item.choices.D, answerMap.source, answerMap.target)
-        }
-      };
-    })
+    answers: [
+      ...buildAnswersForColumn(answersCol1Box, 1, 35),
+      ...buildAnswersForColumn(answersCol2Box, 36, 35),
+      ...buildAnswersForColumn(answersCol3Box, 71, 30)
+    ]
   };
 };

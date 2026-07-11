@@ -185,6 +185,7 @@ pre {
   align-items: start;
   justify-items: start;
   padding: 0.2rem;
+  overflow: visible;
 }
 
 .corner-window-label {
@@ -201,4 +202,47 @@ pre {
   background: #00ff95;
   left: calc(50% - 4px);
   top: calc(50% - 4px);
+}
+
+.region-move-hitbox {
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: transparent;
+  cursor: move;
+  padding: 0;
+}
+
+.region-corner-handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid #00ff95;
+  background: #0c0c0c;
+  padding: 0;
+}
+
+.region-corner-handle-tl {
+  left: -9px;
+  top: -9px;
+  cursor: nwse-resize;
+}
+
+.region-corner-handle-tr {
+  right: -9px;
+  top: -9px;
+  cursor: nesw-resize;
+}
+
+.region-corner-handle-br {
+  right: -9px;
+  bottom: -9px;
+  cursor: nwse-resize;
+}
+
+.region-corner-handle-bl {
+  left: -9px;
+  bottom: -9px;
+  cursor: nesw-resize;
 }

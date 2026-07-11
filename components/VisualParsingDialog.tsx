@@ -46,6 +46,75 @@ interface RoiBoxEditorProps {
   onApplyRoiBoxes: (boxes: RoiBoxVisual[]) => void;
 }
 
+type DragMode = "move" | "resize-tl" | "resize-tr" | "resize-br" | "resize-bl";
+
+const applyDragToRect = (
+  rect: { x: number; y: number; w: number; h: number },
+  mode: DragMode,
+  dx: number,
+  dy: number,
+  minSize: number
+) => {
+  if (mode === "move") {
+    return {
+      ...rect,
+      x: clamp(rect.x + dx, 0, 1 - rect.w),
+      y: clamp(rect.y + dy, 0, 1 - rect.h)
+    };
+  }
+
+  let x1 = rect.x;
+  let y1 = rect.y;
+  let x2 = rect.x + rect.w;
+  let y2 = rect.y + rect.h;
+
+  if (mode === "resize-tl") {
+    x1 += dx;
+    y1 += dy;
+  } else if (mode === "resize-tr") {
+    x2 += dx;
+    y1 += dy;
+  } else if (mode === "resize-br") {
+    x2 += dx;
+    y2 += dy;
+  } else {
+    x1 += dx;
+    y2 += dy;
+  }
+
+  x1 = clamp(x1, 0, 1);
+  y1 = clamp(y1, 0, 1);
+  x2 = clamp(x2, 0, 1);
+  y2 = clamp(y2, 0, 1);
+
+  if (x2 - x1 < minSize) {
+    if (mode === "resize-tl" || mode === "resize-bl") {
+      x1 = x2 - minSize;
+    } else {
+      x2 = x1 + minSize;
+    }
+  }
+  if (y2 - y1 < minSize) {
+    if (mode === "resize-tl" || mode === "resize-tr") {
+      y1 = y2 - minSize;
+    } else {
+      y2 = y1 + minSize;
+    }
+  }
+
+  x1 = clamp(x1, 0, 1 - minSize);
+  y1 = clamp(y1, 0, 1 - minSize);
+  x2 = clamp(x2, x1 + minSize, 1);
+  y2 = clamp(y2, y1 + minSize, 1);
+
+  return {
+    x: x1,
+    y: y1,
+    w: x2 - x1,
+    h: y2 - y1
+  };
+};
+
 function CornerWindowEditor({
   baseImageDataUrl,
   initialCornerWindows,
@@ -55,6 +124,7 @@ function CornerWindowEditor({
   const [draftCornerWindows, setDraftCornerWindows] = useState(initialCornerWindows);
   const [dragState, setDragState] = useState<{
     id: CornerWindowVisual["id"];
+    mode: DragMode;
     pointerId: number;
     startClientX: number;
     startClientY: number;
@@ -62,6 +132,8 @@ function CornerWindowEditor({
     containerHeight: number;
     startX: number;
     startY: number;
+    startW: number;
+    startH: number;
   } | null>(null);
   const editorRef = useRef<HTMLDivElement | null>(null);
 
@@ -83,10 +155,19 @@ function CornerWindowEditor({
           if (cornerWindow.id !== dragState.id) {
             return cornerWindow;
           }
-
-          const nextX = clamp(dragState.startX + dx, 0, 1 - cornerWindow.w);
-          const nextY = clamp(dragState.startY + dy, 0, 1 - cornerWindow.h);
-          return { ...cornerWindow, x: nextX, y: nextY };
+          const next = applyDragToRect(
+            {
+              x: dragState.startX,
+              y: dragState.startY,
+              w: dragState.startW,
+              h: dragState.startH
+            },
+            dragState.mode,
+            dx,
+            dy,
+            0.02
+          );
+          return { ...cornerWindow, x: next.x, y: next.y, w: next.w, h: next.h };
         })
       );
     };
@@ -107,22 +188,27 @@ function CornerWindowEditor({
 
   const beginDrag = (
     event: ReactPointerEvent<HTMLButtonElement>,
-    cornerWindow: CornerWindowVisual
+    cornerWindow: CornerWindowVisual,
+    mode: DragMode
   ) => {
     event.preventDefault();
+    event.stopPropagation();
     const rect = editorRef.current?.getBoundingClientRect();
     if (!rect) {
       return;
     }
     setDragState({
       id: cornerWindow.id,
+      mode,
       pointerId: event.pointerId,
       startClientX: event.clientX,
       startClientY: event.clientY,
       containerWidth: rect.width,
       containerHeight: rect.height,
       startX: cornerWindow.x,
-      startY: cornerWindow.y
+      startY: cornerWindow.y,
+      startW: cornerWindow.w,
+      startH: cornerWindow.h
     });
   };
 
@@ -177,7 +263,7 @@ function CornerWindowEditor({
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={baseImageDataUrl} alt="Corner editor base" />
         {draftCornerWindows.map((cornerWindow) => (
-          <button
+          <div
             key={cornerWindow.id}
             className="corner-window-box"
             style={{
@@ -186,11 +272,30 @@ function CornerWindowEditor({
               width: `${cornerWindow.w * 100}%`,
               height: `${cornerWindow.h * 100}%`
             }}
-            onPointerDown={(event) => beginDrag(event, cornerWindow)}
           >
             <span className="corner-window-label">{cornerWindow.id.toUpperCase()}</span>
             <span className="corner-window-dot" />
-          </button>
+            <button
+              className="region-move-hitbox"
+              onPointerDown={(event) => beginDrag(event, cornerWindow, "move")}
+            />
+            <button
+              className="region-corner-handle region-corner-handle-tl"
+              onPointerDown={(event) => beginDrag(event, cornerWindow, "resize-tl")}
+            />
+            <button
+              className="region-corner-handle region-corner-handle-tr"
+              onPointerDown={(event) => beginDrag(event, cornerWindow, "resize-tr")}
+            />
+            <button
+              className="region-corner-handle region-corner-handle-br"
+              onPointerDown={(event) => beginDrag(event, cornerWindow, "resize-br")}
+            />
+            <button
+              className="region-corner-handle region-corner-handle-bl"
+              onPointerDown={(event) => beginDrag(event, cornerWindow, "resize-bl")}
+            />
+          </div>
         ))}
       </div>
       <div className="actions">
@@ -212,6 +317,7 @@ function RoiBoxEditor({ baseImageDataUrl, initialRoiBoxes, onApplyRoiBoxes }: Ro
   const [draftRoiBoxes, setDraftRoiBoxes] = useState(initialRoiBoxes);
   const [dragState, setDragState] = useState<{
     id: RoiBoxVisual["id"];
+    mode: DragMode;
     pointerId: number;
     startClientX: number;
     startClientY: number;
@@ -219,6 +325,8 @@ function RoiBoxEditor({ baseImageDataUrl, initialRoiBoxes, onApplyRoiBoxes }: Ro
     containerHeight: number;
     startX: number;
     startY: number;
+    startW: number;
+    startH: number;
   } | null>(null);
   const editorRef = useRef<HTMLDivElement | null>(null);
 
@@ -240,9 +348,19 @@ function RoiBoxEditor({ baseImageDataUrl, initialRoiBoxes, onApplyRoiBoxes }: Ro
           if (box.id !== dragState.id) {
             return box;
           }
-          const nextX = clamp(dragState.startX + dx, 0, 1 - box.w);
-          const nextY = clamp(dragState.startY + dy, 0, 1 - box.h);
-          return { ...box, x: nextX, y: nextY };
+          const next = applyDragToRect(
+            {
+              x: dragState.startX,
+              y: dragState.startY,
+              w: dragState.startW,
+              h: dragState.startH
+            },
+            dragState.mode,
+            dx,
+            dy,
+            0.04
+          );
+          return { ...box, x: next.x, y: next.y, w: next.w, h: next.h };
         })
       );
     };
@@ -261,21 +379,29 @@ function RoiBoxEditor({ baseImageDataUrl, initialRoiBoxes, onApplyRoiBoxes }: Ro
     };
   }, [dragState]);
 
-  const beginDrag = (event: ReactPointerEvent<HTMLButtonElement>, box: RoiBoxVisual) => {
+  const beginDrag = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    box: RoiBoxVisual,
+    mode: DragMode
+  ) => {
     event.preventDefault();
+    event.stopPropagation();
     const rect = editorRef.current?.getBoundingClientRect();
     if (!rect) {
       return;
     }
     setDragState({
       id: box.id,
+      mode,
       pointerId: event.pointerId,
       startClientX: event.clientX,
       startClientY: event.clientY,
       containerWidth: rect.width,
       containerHeight: rect.height,
       startX: box.x,
-      startY: box.y
+      startY: box.y,
+      startW: box.w,
+      startH: box.h
     });
   };
 
@@ -298,7 +424,7 @@ function RoiBoxEditor({ baseImageDataUrl, initialRoiBoxes, onApplyRoiBoxes }: Ro
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={baseImageDataUrl} alt="ROI editor base" />
         {draftRoiBoxes.map((box) => (
-          <button
+          <div
             key={box.id}
             className="corner-window-box"
             style={{
@@ -307,11 +433,30 @@ function RoiBoxEditor({ baseImageDataUrl, initialRoiBoxes, onApplyRoiBoxes }: Ro
               width: `${box.w * 100}%`,
               height: `${box.h * 100}%`
             }}
-            onPointerDown={(event) => beginDrag(event, box)}
           >
             <span className="corner-window-label">{labelMap[box.id]}</span>
             <span className="corner-window-dot" />
-          </button>
+            <button
+              className="region-move-hitbox"
+              onPointerDown={(event) => beginDrag(event, box, "move")}
+            />
+            <button
+              className="region-corner-handle region-corner-handle-tl"
+              onPointerDown={(event) => beginDrag(event, box, "resize-tl")}
+            />
+            <button
+              className="region-corner-handle region-corner-handle-tr"
+              onPointerDown={(event) => beginDrag(event, box, "resize-tr")}
+            />
+            <button
+              className="region-corner-handle region-corner-handle-br"
+              onPointerDown={(event) => beginDrag(event, box, "resize-br")}
+            />
+            <button
+              className="region-corner-handle region-corner-handle-bl"
+              onPointerDown={(event) => beginDrag(event, box, "resize-bl")}
+            />
+          </div>
         ))}
       </div>
       <div className="actions">
