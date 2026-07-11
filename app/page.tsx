@@ -1,19 +1,42 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ScanUploader } from "@/components/ScanUploader";
 import { ResultsReview } from "@/components/ResultsReview";
-import { processSheetFile } from "@/lib/omr/processSheet";
-import type { OMRResultJson, ScanRecord } from "@/types/omr";
+import { VisualParsingDialog } from "@/components/VisualParsingDialog";
+import {
+  type CornerWindowVisual,
+  buildVisualParsingSteps,
+  type VisualParseStep
+} from "@/lib/omr/buildVisualParsingSteps";
+import { applyRoiBoxesToTemplate, type RoiBoxVisual } from "@/lib/omr/roiCalibration";
+import { processSheetFileInWorker, warmupOmrWorker } from "@/lib/omr/processSheetInWorker";
+import { prepareImageForScan } from "@/lib/omr/prepareImageForScan";
+import { defaultSheetTemplate } from "@/lib/templates/defaultSheetTemplate";
+import type { CornerSnapshot, OMRResultJson, OMRTemplate, ScanRecord } from "@/types/omr";
 
 export default function HomePage() {
+  const [activeTemplate, setActiveTemplate] = useState<OMRTemplate>(() =>
+    JSON.parse(JSON.stringify(defaultSheetTemplate))
+  );
+  const activeTemplateRef = useRef<OMRTemplate>(
+    JSON.parse(JSON.stringify(defaultSheetTemplate))
+  );
   const [file, setFile] = useState<File | null>(null);
   const [sourceName, setSourceName] = useState("");
   const [uploader, setUploader] = useState("");
   const [loading, setLoading] = useState(false);
+  const [scanStage, setScanStage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<OMRResultJson | null>(null);
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const [visualDialogOpen, setVisualDialogOpen] = useState(false);
+  const [visualDialogLoading, setVisualDialogLoading] = useState(false);
+  const [visualDialogStage, setVisualDialogStage] = useState<string | null>(null);
+  const [visualDialogError, setVisualDialogError] = useState<string | null>(null);
+  const [visualSteps, setVisualSteps] = useState<VisualParseStep[]>([]);
+  const [calibrationMessage, setCalibrationMessage] = useState<string | null>(null);
   const [savedScans, setSavedScans] = useState<ScanRecord[]>([]);
   const [filters, setFilters] = useState({
     sourceName: "",
@@ -21,6 +44,16 @@ export default function HomePage() {
     from: "",
     to: ""
   });
+
+  useEffect(() => {
+    void warmupOmrWorker().catch(() => {
+      // Warmup is best-effort; detailed errors surface during an explicit scan request.
+    });
+  }, []);
+
+  useEffect(() => {
+    activeTemplateRef.current = activeTemplate;
+  }, [activeTemplate]);
 
   const refreshScans = async () => {
     const params = new URLSearchParams();
@@ -43,9 +76,22 @@ export default function HomePage() {
       return;
     }
     setLoading(true);
+    setScanStage("Starting scan worker...");
     setError(null);
+    const controller = new AbortController();
+    setAbortController(controller);
     try {
-      const scanned = await processSheetFile(file);
+      setScanStage("Validating and normalizing image...");
+      const prepared = await prepareImageForScan(file);
+      const workerBuffer = prepared.rgbaBuffer.slice(0);
+      const scanned = await processSheetFileInWorker(
+        workerBuffer,
+        prepared.width,
+        prepared.height,
+        activeTemplateRef.current,
+        (stage) => setScanStage(stage),
+        controller.signal
+      );
       setResult(scanned);
       if (!sourceName) {
         setSourceName(file.name);
@@ -53,8 +99,19 @@ export default function HomePage() {
     } catch (scanError) {
       setError(scanError instanceof Error ? scanError.message : "Scan failed.");
     } finally {
+      setAbortController(null);
+      setScanStage(null);
       setLoading(false);
     }
+  };
+
+  const cancelScan = () => {
+    abortController?.abort();
+  };
+
+  const handleFileChange = (nextFile: File | null) => {
+    setFile(nextFile);
+    setCalibrationMessage(null);
   };
 
   const saveScan = async () => {
@@ -87,6 +144,143 @@ export default function HomePage() {
     }
   };
 
+  const openVisualDialog = async () => {
+    if (!file) {
+      setError("Choose an answer sheet image first.");
+      return;
+    }
+    setVisualDialogOpen(true);
+    setVisualDialogLoading(true);
+    setVisualDialogError(null);
+    setVisualDialogStage("Preparing visual parsing steps...");
+    try {
+      const steps = await buildVisualParsingSteps(
+        file,
+        activeTemplateRef.current,
+        (stage) => setVisualDialogStage(stage)
+      );
+      setVisualSteps(steps);
+    } catch (dialogError) {
+      setVisualDialogError(
+        dialogError instanceof Error
+          ? dialogError.message
+          : "Unable to generate visual parsing steps."
+      );
+    } finally {
+      setVisualDialogLoading(false);
+      setVisualDialogStage(null);
+    }
+  };
+
+  const rebuildVisualStepsForTemplate = async (
+    template: OMRTemplate,
+    stageMessage: string
+  ): Promise<void> => {
+    if (!file || !visualDialogOpen) {
+      return;
+    }
+    setVisualDialogLoading(true);
+    setVisualDialogError(null);
+    setVisualDialogStage(stageMessage);
+    try {
+      const steps = await buildVisualParsingSteps(file, template, (stage) => setVisualDialogStage(stage));
+      setVisualSteps(steps);
+    } catch (dialogError) {
+      setVisualDialogError(
+        dialogError instanceof Error
+          ? dialogError.message
+          : "Unable to refresh visual parsing steps."
+      );
+    } finally {
+      setVisualDialogLoading(false);
+      setVisualDialogStage(null);
+    }
+  };
+
+  const applyCornerWindows = (windows: CornerWindowVisual[]) => {
+    const searchWindows = windows.reduce<NonNullable<OMRTemplate["cornerSearchWindows"]>>(
+      (accumulator, cornerWindow) => {
+        accumulator[cornerWindow.id] = {
+          x: cornerWindow.x,
+          y: cornerWindow.y,
+          w: cornerWindow.w,
+          h: cornerWindow.h
+        };
+        return accumulator;
+      },
+      {}
+    );
+
+    const currentTemplate = activeTemplateRef.current;
+    const nextCornerMarkers = currentTemplate.cornerMarkers.map((marker) => {
+      const cornerWindow = windows.find((window) => window.id === marker.id);
+      if (!cornerWindow) {
+        return marker;
+      }
+
+      const nextWidth = Math.max(0.004, marker.w);
+      const nextHeight = Math.max(0.004, marker.h);
+      const centerX = cornerWindow.x + cornerWindow.w / 2;
+      const centerY = cornerWindow.y + cornerWindow.h / 2;
+
+      const nextX = Math.min(1 - nextWidth, Math.max(0, centerX - nextWidth / 2));
+      const nextY = Math.min(1 - nextHeight, Math.max(0, centerY - nextHeight / 2));
+
+      return {
+        ...marker,
+        x: nextX,
+        y: nextY,
+        w: nextWidth,
+        h: nextHeight
+      };
+    });
+
+    const nextTemplate: OMRTemplate = {
+      ...currentTemplate,
+      cornerSearchWindows: searchWindows,
+      cornerMarkers: nextCornerMarkers
+    };
+
+    setActiveTemplate(nextTemplate);
+    setVisualDialogError(null);
+    setVisualSteps((current) =>
+      current.map((step) => (step.id === "corners" ? { ...step, cornerWindows: windows } : step))
+    );
+    setCalibrationMessage("Corner search windows applied. Next scan will use these regions.");
+    setVisualDialogStage("Corner windows applied. Next scan will use these search regions.");
+    void rebuildVisualStepsForTemplate(nextTemplate, "Refreshing transformed sheet preview...");
+  };
+
+  const captureCornerSnapshots = (
+    snapshots: Partial<Record<CornerWindowVisual["id"], CornerSnapshot>>
+  ) => {
+    setActiveTemplate((current) => ({
+      ...current,
+      cornerSnapshots: {
+        ...(current.cornerSnapshots ?? {}),
+        ...snapshots
+      }
+    }));
+    setCalibrationMessage(
+      "Corner snapshots captured. Next scan will use quadrant template matching for corners."
+    );
+    setVisualDialogStage(
+      "Corner snapshots captured. Next scan will use quadrant template matching for corners."
+    );
+  };
+
+  const applyRoiBoxes = (boxes: RoiBoxVisual[]) => {
+    const nextTemplate = applyRoiBoxesToTemplate(activeTemplateRef.current, boxes);
+    setActiveTemplate(nextTemplate);
+    setVisualDialogError(null);
+    setVisualSteps((current) =>
+      current.map((step) => (step.id === "regions" ? { ...step, roiBoxes: boxes } : step))
+    );
+    setCalibrationMessage("ROI boxes applied. Next scan will use these extraction regions.");
+    setVisualDialogStage("ROI boxes applied. Next scan will use these extraction regions.");
+    void rebuildVisualStepsForTemplate(nextTemplate, "Refreshing ROI preview...");
+  };
+
   return (
     <main className="main">
       <h1>OMR Answer Sheet Scanner</h1>
@@ -98,10 +292,15 @@ export default function HomePage() {
           sourceName={sourceName}
           uploader={uploader}
           loading={loading}
+          hasFile={Boolean(file)}
+          stage={scanStage}
+          calibrationMessage={calibrationMessage}
           onSourceNameChange={setSourceName}
           onUploaderChange={setUploader}
-          onFileChange={setFile}
+          onFileChange={handleFileChange}
           onRunScan={runScan}
+          onCancelScan={cancelScan}
+          onOpenVisualDialog={openVisualDialog}
         />
         <ResultsReview
           result={result}
@@ -115,6 +314,17 @@ export default function HomePage() {
           onRefreshScans={refreshScans}
         />
       </div>
+      <VisualParsingDialog
+        isOpen={visualDialogOpen}
+        loading={visualDialogLoading}
+        stage={visualDialogStage}
+        error={visualDialogError}
+        steps={visualSteps}
+        onApplyCornerWindows={applyCornerWindows}
+        onCaptureCornerSnapshots={captureCornerSnapshots}
+        onApplyRoiBoxes={applyRoiBoxes}
+        onClose={() => setVisualDialogOpen(false)}
+      />
     </main>
   );
 }

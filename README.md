@@ -66,6 +66,8 @@ No raw image blobs are stored in Supabase by default.
 ## Review and correction flow
 
 - Upload and run scan on the home page.
+- Use **Open Visual Parse Steps** to inspect step-by-step parsing visuals (normalized image, grayscale, threshold map, corner detection, and ROI overlays).
+- In the visual dialog, corner search windows are draggable; **Apply Corner Boxes** stores these exact regions for corner-square search and perspective normalization on the next scan.
 - Apply manual corrections before save:
   - student ID digits
   - exam code digits
@@ -78,4 +80,14 @@ No raw image blobs are stored in Supabase by default.
 
 - Current version performs threshold-based bubble scoring and returns JSON marks/shades.
 - Corner-marker perspective correction is enabled using the four corner blocks from the template.
+- Large photos are downscaled (max side ~800px) before processing to keep browser scans responsive.
+- OpenCV runtime loading now has a timeout guard to avoid indefinite scan hangs.
+- OMR scanning runs in a Web Worker so the UI stays responsive while processing.
+- If worker initialization fails/times out, the scan stops with an explicit error (no blocking main-thread fallback).
+- Active scans can be cancelled from the upload panel.
+- Uploaded photos are pre-validated and normalized to standard JPEG before scan to reduce decode incompatibilities.
+- OpenCV worker runtime is served locally (`/public/opencv-worker-runtime.js`) so loading is same-origin and more reliable.
+- Worker failures include stage-tagged diagnostic errors to speed up root-cause debugging.
+- Worker runtime is pre-warmed on page load to avoid first-scan initialization timeouts.
+- Worker lifecycle and scan-stage logs are emitted to browser console (`[OMR Worker]`, `[OMR WorkerThread]`).
 - For production, tune region coordinates and thresholds using real scans from your printer/camera setup.

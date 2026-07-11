@@ -4,20 +4,30 @@ interface ScanUploaderProps {
   sourceName: string;
   uploader: string;
   loading: boolean;
+  hasFile: boolean;
+  stage: string | null;
+  calibrationMessage: string | null;
   onSourceNameChange: (value: string) => void;
   onUploaderChange: (value: string) => void;
   onFileChange: (file: File | null) => void;
   onRunScan: () => Promise<void>;
+  onCancelScan: () => void;
+  onOpenVisualDialog: () => Promise<void>;
 }
 
 export function ScanUploader({
   sourceName,
   uploader,
   loading,
+  hasFile,
+  stage,
+  calibrationMessage,
   onSourceNameChange,
   onUploaderChange,
   onFileChange,
-  onRunScan
+  onRunScan,
+  onCancelScan,
+  onOpenVisualDialog
 }: ScanUploaderProps) {
   return (
     <section className="card">
@@ -51,7 +61,13 @@ export function ScanUploader({
         <button onClick={() => void onRunScan()} disabled={loading}>
           {loading ? "Scanning..." : "Run OMR Scan"}
         </button>
+        <button onClick={() => void onOpenVisualDialog()} disabled={loading || !hasFile}>
+          Open Visual Parse Steps
+        </button>
+        {loading ? <button onClick={onCancelScan}>Cancel Scan</button> : null}
       </div>
+      {!loading && calibrationMessage ? <p className="subtle-text">{calibrationMessage}</p> : null}
+      {loading && stage ? <p className="subtle-text">{stage}</p> : null}
     </section>
   );
 }

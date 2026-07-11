@@ -27,15 +27,21 @@ export const regionShadeScore = (
 ): number => {
   const rect = normalizeRegion(region, thresholded.cols, thresholded.rows);
   const roi = thresholded.roi(rect);
-  let ink = 0;
   const total = rect.width * rect.height;
-  for (let y = 0; y < rect.height; y += 1) {
-    for (let x = 0; x < rect.width; x += 1) {
-      if (roi.ucharPtr(y, x)[0] > 0) {
-        ink += 1;
-      }
-    }
-  }
+  const ink =
+    typeof window !== "undefined" && window.cv?.countNonZero
+      ? window.cv.countNonZero(roi)
+      : (() => {
+          let fallbackInk = 0;
+          for (let y = 0; y < rect.height; y += 1) {
+            for (let x = 0; x < rect.width; x += 1) {
+              if (roi.ucharPtr(y, x)[0] > 0) {
+                fallbackInk += 1;
+              }
+            }
+          }
+          return fallbackInk;
+        })();
   roi.delete();
   return total > 0 ? ink / total : 0;
 };
