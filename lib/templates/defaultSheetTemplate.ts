@@ -17,28 +17,28 @@ const makeChoiceRow = (
   D: { x: startX + 3 * gap, y, w: bubbleSize, h: bubbleSize }
 });
 
-const makeDigitColumns = (
+const makeDigitRows = (
   startX: number,
   startY: number,
-  columnCount: number
+  rowCount: number
 ): BubbleRegion[][] => {
-  const columns: BubbleRegion[][] = [];
-  const columnGap = 0.036;
-  const rowGap = 0.028;
+  const rows: BubbleRegion[][] = [];
+  const optionGap = 0.028;
+  const digitRowGap = 0.036;
   const bubbleSize = 0.017;
-  for (let c = 0; c < columnCount; c += 1) {
-    const col: BubbleRegion[] = [];
-    for (let r = 0; r < 10; r += 1) {
-      col.push({
-        x: startX + c * columnGap,
-        y: startY + r * rowGap,
+  for (let row = 0; row < rowCount; row += 1) {
+    const options: BubbleRegion[] = [];
+    for (let option = 0; option < 10; option += 1) {
+      options.push({
+        x: startX + option * optionGap,
+        y: startY + row * digitRowGap,
         w: bubbleSize,
         h: bubbleSize
       });
     }
-    columns.push(col);
+    rows.push(options);
   }
-  return columns;
+  return rows;
 };
 
 const buildAnswers = (): AnswerItemRegion[] => {
@@ -78,13 +78,13 @@ export const defaultSheetTemplate: OMRTemplate = {
     key: "studentId",
     digits: 6,
     bubbleRows: 10,
-    columns: makeDigitColumns(0.156, 0.262, 6)
+    columns: makeDigitRows(0.156, 0.262, 6)
   },
   examCode: {
     key: "examCode",
     digits: 3,
     bubbleRows: 10,
-    columns: makeDigitColumns(0.156, 0.593, 3)
+    columns: makeDigitRows(0.156, 0.593, 3)
   },
   examSet: {
     choices: makeChoiceRow(0.155, 0.818, 0.0175, 0.026)

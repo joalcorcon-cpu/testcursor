@@ -632,11 +632,11 @@ export const buildVisualParsingSteps = async (
     const roiById = new Map(roiBoxes.map((box) => [box.id, box]));
     const studentIdBox = roiById.get("studentId");
     if (studentIdBox) {
-      drawGrid(studentIdBox, template.studentId.digits, template.studentId.bubbleRows);
+      drawGrid(studentIdBox, template.studentId.bubbleRows, template.studentId.digits);
     }
     const examCodeBox = roiById.get("examCode");
     if (examCodeBox) {
-      drawGrid(examCodeBox, template.examCode.digits, template.examCode.bubbleRows);
+      drawGrid(examCodeBox, template.examCode.bubbleRows, template.examCode.digits);
     }
     const examSetBox = roiById.get("examSet");
     if (examSetBox) {

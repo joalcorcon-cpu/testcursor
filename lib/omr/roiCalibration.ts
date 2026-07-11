@@ -66,16 +66,20 @@ const makeCellBubble = (
   };
 };
 
-const buildDigitColumnsFromBox = (box: BubbleRegion, digits: number, rows: number): BubbleRegion[][] => {
-  const columns: BubbleRegion[][] = [];
-  for (let col = 0; col < digits; col += 1) {
-    const bubbles: BubbleRegion[] = [];
-    for (let row = 0; row < rows; row += 1) {
-      bubbles.push(makeCellBubble(box, digits, rows, col, row));
+const buildDigitRowsFromBox = (
+  box: BubbleRegion,
+  rowCount: number,
+  optionsPerRow: number
+): BubbleRegion[][] => {
+  const rows: BubbleRegion[][] = [];
+  for (let row = 0; row < rowCount; row += 1) {
+    const options: BubbleRegion[] = [];
+    for (let option = 0; option < optionsPerRow; option += 1) {
+      options.push(makeCellBubble(box, optionsPerRow, rowCount, option, row));
     }
-    columns.push(bubbles);
+    rows.push(options);
   }
-  return columns;
+  return rows;
 };
 
 const buildExamSetChoicesFromBox = (box: BubbleRegion) => ({
@@ -189,7 +193,7 @@ export const applyRoiBoxesToTemplate = (
     },
     studentId: {
       ...template.studentId,
-      columns: buildDigitColumnsFromBox(
+      columns: buildDigitRowsFromBox(
         studentBox,
         template.studentId.digits,
         template.studentId.bubbleRows
@@ -197,7 +201,7 @@ export const applyRoiBoxesToTemplate = (
     },
     examCode: {
       ...template.examCode,
-      columns: buildDigitColumnsFromBox(
+      columns: buildDigitRowsFromBox(
         examCodeBox,
         template.examCode.digits,
         template.examCode.bubbleRows
