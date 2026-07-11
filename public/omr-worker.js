@@ -315,7 +315,7 @@ const makeThresholdedSheet = (cv, imageRgbaBuffer, width, height) => {
   return { gray, binary };
 };
 
-const rectifySheet = (cv, gray, thresholded, template) => {
+const resolveSheetCorners = (cv, gray, thresholded, template) => {
   const orderedMarkers = [
     template.cornerMarkers.find((marker) => marker.id === "tl"),
     template.cornerMarkers.find((marker) => marker.id === "tr"),
@@ -324,7 +324,7 @@ const rectifySheet = (cv, gray, thresholded, template) => {
   ].filter(Boolean);
 
   if (orderedMarkers.length !== 4) {
-    return { thresholded, warped: false };
+    return { valid: false, corners: [] };
   }
 
   const cornerDetections = orderedMarkers.map((marker) => {
@@ -338,7 +338,7 @@ const rectifySheet = (cv, gray, thresholded, template) => {
   const foundCount = cornerDetections.filter((corner) => corner.found).length;
   if (foundCount < 4) {
     workerLog("Corner detection incomplete", { foundCount });
-    return { thresholded, warped: false };
+    return { valid: false, corners: [] };
   }
   const corners = cornerDetections.map((corner) => ({ x: corner.x, y: corner.y }));
   const cornerLayoutIsValid =
@@ -358,6 +358,15 @@ const rectifySheet = (cv, gray, thresholded, template) => {
           corners[0].x * corners[3].y)
     ) / 2;
   if (!cornerLayoutIsValid || polygonArea < thresholded.cols * thresholded.rows * 0.25) {
+    return { valid: false, corners: [] };
+  }
+
+  return { valid: true, corners };
+};
+
+const rectifySheet = (cv, gray, thresholded, template) => {
+  const cornerResolution = resolveSheetCorners(cv, gray, thresholded, template);
+  if (!cornerResolution.valid) {
     return { thresholded, warped: false };
   }
 
@@ -365,7 +374,7 @@ const rectifySheet = (cv, gray, thresholded, template) => {
     4,
     1,
     cv.CV_32FC2,
-    corners.flatMap((corner) => [corner.x, corner.y])
+    cornerResolution.corners.flatMap((corner) => [corner.x, corner.y])
   );
   const dstPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
     0,
@@ -399,6 +408,95 @@ const rectifySheet = (cv, gray, thresholded, template) => {
   thresholded.delete();
 
   return { thresholded: warpedBinary, warped: true };
+};
+
+const buildRectifiedPreview = async ({ requestId, imageRgbaBuffer, width, height, template }) => {
+  if (!(imageRgbaBuffer instanceof ArrayBuffer)) {
+    throw new Error("Invalid preview payload.");
+  }
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
+    throw new Error("Invalid preview image dimensions.");
+  }
+  if (imageRgbaBuffer.byteLength > MAX_RGBA_BYTES) {
+    throw new Error("Normalized image payload is too large to preview.");
+  }
+
+  currentStageByRequest.set(requestId, "Preparing rectified preview...");
+  const cv = await loadOpenCv();
+
+  const { gray, binary } = makeThresholdedSheet(cv, imageRgbaBuffer, width, height);
+  try {
+    const cornerResolution = resolveSheetCorners(cv, gray, binary, template);
+    if (!cornerResolution.valid) {
+      const fallbackCopy = imageRgbaBuffer.slice(0);
+      return {
+        rgbaBuffer: fallbackCopy,
+        width,
+        height,
+        warped: false
+      };
+    }
+
+    const rgba = new Uint8ClampedArray(imageRgbaBuffer);
+    let sourceImageData;
+    if (typeof ImageData === "function") {
+      sourceImageData = new ImageData(rgba, width, height);
+    } else {
+      const sourceCanvas = new OffscreenCanvas(width, height);
+      const sourceContext = sourceCanvas.getContext("2d");
+      if (!sourceContext) {
+        throw new Error("Unable to create image data for preview.");
+      }
+      sourceImageData = sourceContext.createImageData(width, height);
+      sourceImageData.data.set(rgba);
+    }
+    const sourceMat = cv.matFromImageData(sourceImageData);
+    const srcPoints = cv.matFromArray(
+      4,
+      1,
+      cv.CV_32FC2,
+      cornerResolution.corners.flatMap((corner) => [corner.x, corner.y])
+    );
+    const dstPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      0,
+      0,
+      width - 1,
+      0,
+      width - 1,
+      height - 1,
+      0,
+      height - 1
+    ]);
+    const transform = cv.getPerspectiveTransform(srcPoints, dstPoints);
+    const warpedRgba = new cv.Mat();
+    cv.warpPerspective(
+      sourceMat,
+      warpedRgba,
+      transform,
+      new cv.Size(width, height),
+      cv.INTER_LINEAR,
+      cv.BORDER_CONSTANT
+    );
+
+    const rgbaOut = new Uint8ClampedArray(warpedRgba.data.length);
+    rgbaOut.set(warpedRgba.data);
+
+    sourceMat.delete();
+    srcPoints.delete();
+    dstPoints.delete();
+    transform.delete();
+    warpedRgba.delete();
+
+    return {
+      rgbaBuffer: rgbaOut.buffer,
+      width,
+      height,
+      warped: true
+    };
+  } finally {
+    gray.delete();
+    binary.delete();
+  }
 };
 
 const postProgress = (requestId, stage) => {
@@ -489,16 +587,34 @@ self.onmessage = async (event) => {
     return;
   }
 
-  if (data.type !== "scan") {
+  if (data.type !== "scan" && data.type !== "rectify-preview") {
     return;
   }
 
   const requestId = data.requestId;
   currentStageByRequest.set(requestId, "worker-start");
-  workerLog("Received scan request", { requestId, width: data.width, height: data.height });
+  workerLog("Received request", {
+    requestId,
+    type: data.type,
+    width: data.width,
+    height: data.height
+  });
   try {
-    const result = await runScan(data);
-    self.postMessage({ type: "result", requestId, result });
+    if (data.type === "scan") {
+      const result = await runScan(data);
+      self.postMessage({ type: "result", requestId, result });
+      return;
+    }
+
+    const preview = await buildRectifiedPreview(data);
+    self.postMessage(
+      {
+        type: "preview-result",
+        requestId,
+        preview
+      },
+      [preview.rgbaBuffer]
+    );
   } catch (error) {
     const currentStage = currentStageByRequest.get(requestId) || "unknown";
     const message = error instanceof Error ? error.message : "Scan failed in worker.";
@@ -506,13 +622,23 @@ self.onmessage = async (event) => {
       error instanceof Error && typeof error.stack === "string"
         ? error.stack.split("\n").slice(0, 2).join(" | ")
         : "";
-    self.postMessage({
-      type: "error",
-      requestId,
-      message,
-      stage: currentStage,
-      stack: stackTop
-    });
+    if (data.type === "scan") {
+      self.postMessage({
+        type: "error",
+        requestId,
+        message,
+        stage: currentStage,
+        stack: stackTop
+      });
+    } else {
+      self.postMessage({
+        type: "preview-error",
+        requestId,
+        message,
+        stage: currentStage,
+        stack: stackTop
+      });
+    }
   } finally {
     currentStageByRequest.delete(requestId);
   }
