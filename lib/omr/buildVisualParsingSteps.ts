@@ -79,7 +79,8 @@ const expandMarker = (marker: CornerMarker, factor = 4): BubbleRegion => {
 };
 
 const detectCornerCentroid = (
-  thresholdMap: Uint8ClampedArray,
+  grayscale: Uint8ClampedArray,
+  threshold: number,
   width: number,
   height: number,
   marker: CornerMarker,
@@ -95,7 +96,7 @@ const detectCornerCentroid = (
         continue;
       }
       const idx = y * width + x;
-      if (thresholdMap[idx] > 0) {
+      if (grayscale[idx] <= threshold) {
         sumX += x;
         sumY += y;
         count += 1;
@@ -182,6 +183,19 @@ const buildThresholdArtifacts = (imageData: ImageData) => {
   };
 };
 
+const buildDarkPixelImage = (grayscale: Uint8ClampedArray, width: number, height: number, threshold: number) => {
+  const rgba = new Uint8ClampedArray(width * height * 4);
+  for (let index = 0; index < grayscale.length; index += 1) {
+    const pixel = grayscale[index] <= threshold ? 0 : 255;
+    const rgbaIndex = index * 4;
+    rgba[rgbaIndex] = pixel;
+    rgba[rgbaIndex + 1] = pixel;
+    rgba[rgbaIndex + 2] = pixel;
+    rgba[rgbaIndex + 3] = 255;
+  }
+  return new ImageData(rgba, width, height);
+};
+
 const shadeScoreFromMask = (
   mask: Uint8ClampedArray,
   width: number,
@@ -239,10 +253,17 @@ export const buildVisualParsingSteps = async (
   const threshold = thresholdArtifacts.threshold;
   const thresholdMask = thresholdArtifacts.thresholdMask;
   const thresholdImage = thresholdArtifacts.thresholdImage;
+  const darkPixelImage = buildDarkPixelImage(
+    thresholdArtifacts.grayscale,
+    normalizedImage.width,
+    normalizedImage.height,
+    threshold
+  );
   const normalizedImageDataUrl = toDataUrl(normalizedImage);
   const cornerDetections = template.cornerMarkers.map((marker) =>
     detectCornerCentroid(
-      thresholdMask,
+      thresholdArtifacts.grayscale,
+      threshold,
       normalizedImage.width,
       normalizedImage.height,
       marker,
@@ -274,7 +295,7 @@ export const buildVisualParsingSteps = async (
     }
   });
 
-  const cornerCentroidOverlayUrl = drawDataUrl(thresholdImage, (ctx) => {
+  const cornerCentroidOverlayUrl = drawDataUrl(darkPixelImage, (ctx) => {
     ctx.lineWidth = 2;
     for (const detection of cornerDetections) {
       ctx.strokeStyle = "#00ff95";
@@ -459,7 +480,7 @@ export const buildVisualParsingSteps = async (
     {
       id: "corner-centroids",
       title: "Step 2: Corner centroid detection",
-      description: `Centroids are computed from dark pixels inside each selected region (${cornerCentroidFound}/4 found). Missing centroid means the region needs adjustment.`,
+      description: `Centroids are computed from dark pixels (pre-inversion) inside each selected region (${cornerCentroidFound}/4 found). Missing centroid means the region needs adjustment.`,
       imageDataUrl: cornerCentroidOverlayUrl
     },
     {
