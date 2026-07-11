@@ -1,11 +1,20 @@
 import type { OMRResultJson, OMRTemplate } from "@/types/omr";
 
+export interface RectifiedPreview {
+  rgbaBuffer: ArrayBuffer;
+  width: number;
+  height: number;
+  warped: boolean;
+}
+
 type WorkerMessage =
   | { type: "ready" }
   | { type: "init-error"; message: string }
   | { type: "progress"; requestId: number; stage: string }
   | { type: "result"; requestId: number; result: OMRResultJson }
-  | { type: "error"; requestId: number; message: string; stage?: string; stack?: string };
+  | { type: "error"; requestId: number; message: string; stage?: string; stack?: string }
+  | { type: "preview-result"; requestId: number; preview: RectifiedPreview }
+  | { type: "preview-error"; requestId: number; message: string; stage?: string; stack?: string };
 
 const WORKER_TIMEOUT_MS = 180000;
 
@@ -19,10 +28,19 @@ interface PendingScan {
   abortHandler?: () => void;
 }
 
+interface PendingPreview {
+  resolve: (result: RectifiedPreview) => void;
+  reject: (error: Error) => void;
+  timeoutId: number;
+  signal?: AbortSignal;
+  abortHandler?: () => void;
+}
+
 let sharedWorker: Worker | null = null;
 let workerReadyPromise: Promise<void> | null = null;
 let requestSeq = 1;
 const pendingScans = new Map<number, PendingScan>();
+const pendingPreviews = new Map<number, PendingPreview>();
 const logWorkerDebug = (message: string, details?: unknown) => {
   if (details === undefined) {
     console.info(`[OMR Worker] ${message}`);
@@ -47,6 +65,18 @@ const teardownWorker = (error?: Error) => {
       }
       pending.reject(error ?? new Error("Worker terminated unexpectedly."));
       pendingScans.delete(requestId);
+    }
+  }
+
+  if (pendingPreviews.size > 0) {
+    logWorkerDebug("Tearing down worker with pending previews", { pending: pendingPreviews.size });
+    for (const [requestId, pending] of pendingPreviews.entries()) {
+      window.clearTimeout(pending.timeoutId);
+      if (pending.signal && pending.abortHandler) {
+        pending.signal.removeEventListener("abort", pending.abortHandler);
+      }
+      pending.reject(error ?? new Error("Worker terminated unexpectedly."));
+      pendingPreviews.delete(requestId);
     }
   }
 };
@@ -91,14 +121,47 @@ const ensureWorkerReady = async (): Promise<Worker> => {
       }
 
       const pending = pendingScans.get(payload.requestId);
-      if (!pending) {
-        return;
-      }
-
       if (payload.type === "progress") {
+        if (!pending) {
+          return;
+        }
         logWorkerDebug(`Scan #${payload.requestId} stage`, payload.stage);
         pending.lastStage = payload.stage;
         pending.onProgress?.(payload.stage);
+        return;
+      }
+
+      if (payload.type === "preview-result") {
+        const pendingPreview = pendingPreviews.get(payload.requestId);
+        if (!pendingPreview) {
+          return;
+        }
+        window.clearTimeout(pendingPreview.timeoutId);
+        if (pendingPreview.signal && pendingPreview.abortHandler) {
+          pendingPreview.signal.removeEventListener("abort", pendingPreview.abortHandler);
+        }
+        pendingPreviews.delete(payload.requestId);
+        pendingPreview.resolve(payload.preview);
+        return;
+      }
+
+      if (payload.type === "preview-error") {
+        const pendingPreview = pendingPreviews.get(payload.requestId);
+        if (!pendingPreview) {
+          return;
+        }
+        window.clearTimeout(pendingPreview.timeoutId);
+        if (pendingPreview.signal && pendingPreview.abortHandler) {
+          pendingPreview.signal.removeEventListener("abort", pendingPreview.abortHandler);
+        }
+        pendingPreviews.delete(payload.requestId);
+        const stagePrefix = payload.stage ? `[${payload.stage}] ` : "";
+        const stackSuffix = payload.stack ? ` (${payload.stack})` : "";
+        pendingPreview.reject(new Error(`${stagePrefix}${payload.message}${stackSuffix}`));
+        return;
+      }
+
+      if (!pending) {
         return;
       }
 
@@ -223,6 +286,78 @@ export const processSheetFileInWorker = async (
     worker.postMessage(
       {
         type: "scan",
+        requestId,
+        imageRgbaBuffer,
+        width,
+        height,
+        template
+      },
+      [imageRgbaBuffer]
+    );
+  });
+};
+
+export const buildRectifiedPreviewInWorker = async (
+  imageRgbaBuffer: ArrayBuffer,
+  width: number,
+  height: number,
+  template: OMRTemplate,
+  signal?: AbortSignal
+): Promise<RectifiedPreview> => {
+  if (typeof window === "undefined" || typeof Worker === "undefined") {
+    throw new Error("Web Worker preview is not supported in this environment.");
+  }
+
+  const worker = await ensureWorkerReady();
+  const requestId = requestSeq;
+  requestSeq += 1;
+  logWorkerDebug(`Dispatching preview #${requestId}`, { width, height });
+
+  return await new Promise<RectifiedPreview>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      const pending = pendingPreviews.get(requestId);
+      if (!pending) {
+        return;
+      }
+      pendingPreviews.delete(requestId);
+      if (pending.signal && pending.abortHandler) {
+        pending.signal.removeEventListener("abort", pending.abortHandler);
+      }
+      reject(new Error("Preview timed out while generating perspective transform."));
+      teardownWorker(new Error("Worker timed out during preview."));
+    }, WORKER_TIMEOUT_MS);
+
+    const handleAbort = () => {
+      const pending = pendingPreviews.get(requestId);
+      if (!pending) {
+        return;
+      }
+      window.clearTimeout(timeoutId);
+      pendingPreviews.delete(requestId);
+      if (pending.signal && pending.abortHandler) {
+        pending.signal.removeEventListener("abort", pending.abortHandler);
+      }
+      reject(new Error("Preview cancelled."));
+      teardownWorker(new Error("Preview cancelled."));
+    };
+
+    if (signal?.aborted) {
+      handleAbort();
+      return;
+    }
+
+    signal?.addEventListener("abort", handleAbort);
+    pendingPreviews.set(requestId, {
+      resolve,
+      reject,
+      timeoutId,
+      signal,
+      abortHandler: handleAbort
+    });
+
+    worker.postMessage(
+      {
+        type: "rectify-preview",
         requestId,
         imageRgbaBuffer,
         width,
