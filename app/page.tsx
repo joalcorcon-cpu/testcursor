@@ -16,6 +16,23 @@ import { prepareImageForScan } from "@/lib/omr/prepareImageForScan";
 import { defaultSheetTemplate } from "@/lib/templates/defaultSheetTemplate";
 import type { CornerSnapshot, OMRResultJson, OMRTemplate, ScanRecord } from "@/types/omr";
 
+type ProcessingStatus = "queued" | "processing" | "done" | "error";
+
+interface SelectedInputFile {
+  id: string;
+  file: File;
+}
+
+interface ProcessingFileItem {
+  id: string;
+  name: string;
+  status: ProcessingStatus;
+  detail?: string;
+}
+
+const makeFileId = (file: File, index: number) =>
+  `${file.name}-${file.size}-${file.lastModified}-${index}`;
+
 export default function HomePage() {
   const [activeTemplate, setActiveTemplate] = useState<OMRTemplate>(() =>
     JSON.parse(JSON.stringify(defaultSheetTemplate))
@@ -24,6 +41,8 @@ export default function HomePage() {
     JSON.parse(JSON.stringify(defaultSheetTemplate))
   );
   const [file, setFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<SelectedInputFile[]>([]);
+  const [processingFiles, setProcessingFiles] = useState<ProcessingFileItem[]>([]);
   const [sourceName, setSourceName] = useState("");
   const [uploader, setUploader] = useState("");
   const [loading, setLoading] = useState(false);
@@ -72,8 +91,8 @@ export default function HomePage() {
   };
 
   const runScan = async () => {
-    if (!file) {
-      setError("Choose an answer sheet image first.");
+    if (selectedFiles.length === 0) {
+      setError("Choose one or more answer sheet images first.");
       return;
     }
     setLoading(true);
@@ -81,25 +100,65 @@ export default function HomePage() {
     setError(null);
     const controller = new AbortController();
     setAbortController(controller);
-    try {
-      setScanStage("Validating and normalizing image...");
-      const prepared = await prepareImageForScan(file);
-      const workerBuffer = prepared.rgbaBuffer.slice(0);
-      const scanned = await processSheetFileInWorker(
-        workerBuffer,
-        prepared.width,
-        prepared.height,
-        activeTemplateRef.current,
-        (stage) => setScanStage(stage),
-        controller.signal
+    setProcessingFiles((current) =>
+      current.map((item) => ({
+        ...item,
+        status: "queued",
+        detail: undefined
+      }))
+    );
+
+    const updateProcessing = (
+      id: string,
+      status: ProcessingStatus,
+      detail?: string
+    ) => {
+      setProcessingFiles((current) =>
+        current.map((item) => (item.id === id ? { ...item, status, detail } : item))
       );
-      setResult(scanned);
-      if (!sourceName) {
-        setSourceName(file.name);
+    };
+
+    let failedCount = 0;
+    try {
+      for (let index = 0; index < selectedFiles.length; index += 1) {
+        const current = selectedFiles[index];
+        setFile(current.file);
+        updateProcessing(current.id, "processing", "Preparing image...");
+        setScanStage(`Processing ${index + 1}/${selectedFiles.length}: ${current.file.name}`);
+        try {
+          const prepared = await prepareImageForScan(current.file);
+          const workerBuffer = prepared.rgbaBuffer.slice(0);
+          const scanned = await processSheetFileInWorker(
+            workerBuffer,
+            prepared.width,
+            prepared.height,
+            activeTemplateRef.current,
+            (stage) =>
+              setScanStage(
+                `Processing ${index + 1}/${selectedFiles.length}: ${current.file.name} — ${stage}`
+              ),
+            controller.signal
+          );
+          setResult(scanned);
+          updateProcessing(current.id, "done", "Scan complete");
+          if (!sourceName && index === 0) {
+            setSourceName(current.file.name);
+          }
+        } catch (scanError) {
+          failedCount += 1;
+          updateProcessing(
+            current.id,
+            "error",
+            scanError instanceof Error ? scanError.message : "Scan failed."
+          );
+        }
       }
     } catch (scanError) {
       setError(scanError instanceof Error ? scanError.message : "Scan failed.");
     } finally {
+      if (failedCount > 0) {
+        setError(`${failedCount} file(s) failed during scan. See file list below for details.`);
+      }
       setAbortController(null);
       setScanStage(null);
       setLoading(false);
@@ -110,8 +169,20 @@ export default function HomePage() {
     abortController?.abort();
   };
 
-  const handleFileChange = (nextFile: File | null) => {
-    setFile(nextFile);
+  const handleFileChange = (nextFiles: File[]) => {
+    const mapped = nextFiles.map((nextFile, index) => ({
+      id: makeFileId(nextFile, index),
+      file: nextFile
+    }));
+    setSelectedFiles(mapped);
+    setFile(mapped[0]?.file ?? null);
+    setProcessingFiles(
+      mapped.map((entry) => ({
+        id: entry.id,
+        name: entry.file.name,
+        status: "queued"
+      }))
+    );
     setCalibrationMessage(null);
   };
 
@@ -320,7 +391,8 @@ export default function HomePage() {
           sourceName={sourceName}
           uploader={uploader}
           loading={loading}
-          hasFile={Boolean(file)}
+          hasFile={selectedFiles.length > 0}
+          processingFiles={processingFiles}
           stage={scanStage}
           calibrationMessage={calibrationMessage}
           onSourceNameChange={setSourceName}

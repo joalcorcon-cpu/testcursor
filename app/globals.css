@@ -35,6 +35,91 @@ body {
   flex-wrap: wrap;
 }
 
+.drop-area {
+  margin-top: 0.75rem;
+  border: 1.5px dashed #7a7a7a;
+  border-radius: 12px;
+  padding: 1.1rem;
+  display: grid;
+  gap: 0.45rem;
+  justify-items: start;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0));
+}
+
+.drop-area-active {
+  border-color: #00ff95;
+  box-shadow: 0 0 0 1px #00ff9540 inset;
+}
+
+.drop-area-input {
+  display: none;
+}
+
+.drop-area-browse {
+  border-radius: 8px;
+  border: 1px solid #7776;
+  padding: 0.45rem 0.8rem;
+  cursor: pointer;
+  font-size: 0.92rem;
+}
+
+.processing-list {
+  margin-top: 1rem;
+  border-top: 1px solid #6664;
+  padding-top: 0.8rem;
+}
+
+.processing-list h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.processing-list ul {
+  margin: 0.6rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.processing-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #6664;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.processing-badge {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.processing-queued {
+  color: #d8d8d8;
+  border-color: #7776;
+}
+
+.processing-processing {
+  color: #8ad9ff;
+  border-color: #4ea1d2;
+}
+
+.processing-done {
+  color: #89f9b9;
+  border-color: #2c9f64;
+}
+
+.processing-error {
+  color: #ff9e9e;
+  border-color: #b94a4a;
+}
+
 .field-grid {
   display: grid;
   gap: 0.75rem;
