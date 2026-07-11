@@ -81,4 +81,6 @@ No raw image blobs are stored in Supabase by default.
 - Large photos are downscaled (max side ~800px) before processing to keep browser scans responsive.
 - OpenCV runtime loading now has a timeout guard to avoid indefinite scan hangs.
 - OMR scanning runs in a Web Worker so the UI stays responsive while processing.
+- If worker initialization fails/times out, the app automatically falls back to compatibility scan mode.
+- Active scans can be cancelled from the upload panel.
 - For production, tune region coordinates and thresholds using real scans from your printer/camera setup.

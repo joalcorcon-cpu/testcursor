@@ -5,12 +5,13 @@ type WorkerMessage =
   | { type: "result"; result: OMRResultJson }
   | { type: "error"; message: string };
 
-const WORKER_TIMEOUT_MS = 90000;
+const WORKER_TIMEOUT_MS = 20000;
 
 export const processSheetFileInWorker = async (
   file: File,
   template: OMRTemplate,
-  onProgress?: (stage: string) => void
+  onProgress?: (stage: string) => void,
+  signal?: AbortSignal
 ): Promise<OMRResultJson> => {
   if (typeof window === "undefined" || typeof Worker === "undefined") {
     throw new Error("Web Worker scanning is not supported in this environment.");
@@ -23,6 +24,9 @@ export const processSheetFileInWorker = async (
 
     const cleanup = () => {
       window.clearTimeout(timeoutId);
+      if (signal) {
+        signal.removeEventListener("abort", handleAbort);
+      }
       worker.terminate();
     };
 
@@ -30,6 +34,18 @@ export const processSheetFileInWorker = async (
       cleanup();
       reject(new Error("Scan timed out. Please try a clearer or smaller image."));
     }, WORKER_TIMEOUT_MS);
+
+    const handleAbort = () => {
+      cleanup();
+      reject(new Error("Scan cancelled."));
+    };
+
+    if (signal?.aborted) {
+      handleAbort();
+      return;
+    }
+
+    signal?.addEventListener("abort", handleAbort);
 
     worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
       const payload = event.data;

@@ -9,6 +9,7 @@ interface ScanUploaderProps {
   onUploaderChange: (value: string) => void;
   onFileChange: (file: File | null) => void;
   onRunScan: () => Promise<void>;
+  onCancelScan: () => void;
 }
 
 export function ScanUploader({
@@ -19,7 +20,8 @@ export function ScanUploader({
   onSourceNameChange,
   onUploaderChange,
   onFileChange,
-  onRunScan
+  onRunScan,
+  onCancelScan
 }: ScanUploaderProps) {
   return (
     <section className="card">
@@ -53,6 +55,7 @@ export function ScanUploader({
         <button onClick={() => void onRunScan()} disabled={loading}>
           {loading ? "Scanning..." : "Run OMR Scan"}
         </button>
+        {loading ? <button onClick={onCancelScan}>Cancel Scan</button> : null}
       </div>
       {loading && stage ? <p className="subtle-text">{stage}</p> : null}
     </section>

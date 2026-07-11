@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ScanUploader } from "@/components/ScanUploader";
 import { ResultsReview } from "@/components/ResultsReview";
 import { processSheetFileInWorker } from "@/lib/omr/processSheetInWorker";
+import { processSheetFile } from "@/lib/omr/processSheet";
 import { defaultSheetTemplate } from "@/lib/templates/defaultSheetTemplate";
 import type { OMRResultJson, ScanRecord } from "@/types/omr";
 
@@ -16,6 +17,7 @@ export default function HomePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<OMRResultJson | null>(null);
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [savedScans, setSavedScans] = useState<ScanRecord[]>([]);
   const [filters, setFilters] = useState({
     sourceName: "",
@@ -47,12 +49,24 @@ export default function HomePage() {
     setLoading(true);
     setScanStage("Starting scan worker...");
     setError(null);
+    const controller = new AbortController();
+    setAbortController(controller);
     try {
-      const scanned = await processSheetFileInWorker(
-        file,
-        defaultSheetTemplate,
-        (stage) => setScanStage(stage)
-      );
+      let scanned: OMRResultJson;
+      try {
+        scanned = await processSheetFileInWorker(
+          file,
+          defaultSheetTemplate,
+          (stage) => setScanStage(stage),
+          controller.signal
+        );
+      } catch (workerError) {
+        if (controller.signal.aborted) {
+          throw workerError;
+        }
+        setScanStage("Worker unavailable, running compatibility scan...");
+        scanned = await processSheetFile(file);
+      }
       setResult(scanned);
       if (!sourceName) {
         setSourceName(file.name);
@@ -60,9 +74,14 @@ export default function HomePage() {
     } catch (scanError) {
       setError(scanError instanceof Error ? scanError.message : "Scan failed.");
     } finally {
+      setAbortController(null);
       setScanStage(null);
       setLoading(false);
     }
+  };
+
+  const cancelScan = () => {
+    abortController?.abort();
   };
 
   const saveScan = async () => {
@@ -111,6 +130,7 @@ export default function HomePage() {
           onUploaderChange={setUploader}
           onFileChange={setFile}
           onRunScan={runScan}
+          onCancelScan={cancelScan}
         />
         <ResultsReview
           result={result}
