@@ -584,6 +584,7 @@ export function VisualParsingDialog({
   const [pageIndex, setPageIndex] = useState(0);
   const [navigationBusy, setNavigationBusy] = useState(false);
   const [roiDraftBoxes, setRoiDraftBoxes] = useState<RoiBoxVisual[] | null>(null);
+  const roiDraftBoxesRef = useRef<RoiBoxVisual[] | null>(null);
   const wizardPages = ["corners", "centroids", "transform", "roi", "readAreas"] as const;
   const cornerStep = useMemo(
     () => steps.find((step) => step.id === "corners" && step.cornerWindows?.length),
@@ -625,10 +626,16 @@ export function VisualParsingDialog({
     return null;
   }
 
+  const handleDraftRoiBoxesChange = (boxes: RoiBoxVisual[]) => {
+    roiDraftBoxesRef.current = boxes;
+    setRoiDraftBoxes(boxes);
+  };
+
   const handleClose = () => {
     setPageIndex(0);
     setNavigationBusy(false);
     setRoiDraftBoxes(null);
+    roiDraftBoxesRef.current = null;
     onClose();
   };
 
@@ -654,11 +661,13 @@ export function VisualParsingDialog({
     }
     const boxesToApply =
       currentPage === "roi"
-        ? roiDraftBoxes && roiDraftBoxes.length > 0
-          ? roiDraftBoxes
-          : roiStep?.roiBoxes && roiStep.roiBoxes.length > 0
-            ? roiStep.roiBoxes
-            : null
+        ? roiDraftBoxesRef.current && roiDraftBoxesRef.current.length > 0
+          ? roiDraftBoxesRef.current
+          : roiDraftBoxes && roiDraftBoxes.length > 0
+            ? roiDraftBoxes
+            : roiStep?.roiBoxes && roiStep.roiBoxes.length > 0
+              ? roiStep.roiBoxes
+              : null
         : null;
     if (boxesToApply) {
       setNavigationBusy(true);
@@ -738,7 +747,7 @@ export function VisualParsingDialog({
                 baseImageDataUrl={roiStep.baseImageDataUrl}
                 initialRoiBoxes={roiStep.roiBoxes ?? []}
                 onApplyRoiBoxes={onApplyRoiBoxes}
-                onDraftRoiBoxesChange={setRoiDraftBoxes}
+                onDraftRoiBoxesChange={handleDraftRoiBoxesChange}
               />
             ) : (
               <p className="subtle-text">ROI step is not available for this image.</p>
