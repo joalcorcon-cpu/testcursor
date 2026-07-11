@@ -172,6 +172,31 @@ export default function HomePage() {
     }
   };
 
+  const rebuildVisualStepsForTemplate = async (
+    template: OMRTemplate,
+    stageMessage: string
+  ): Promise<void> => {
+    if (!file || !visualDialogOpen) {
+      return;
+    }
+    setVisualDialogLoading(true);
+    setVisualDialogError(null);
+    setVisualDialogStage(stageMessage);
+    try {
+      const steps = await buildVisualParsingSteps(file, template, (stage) => setVisualDialogStage(stage));
+      setVisualSteps(steps);
+    } catch (dialogError) {
+      setVisualDialogError(
+        dialogError instanceof Error
+          ? dialogError.message
+          : "Unable to refresh visual parsing steps."
+      );
+    } finally {
+      setVisualDialogLoading(false);
+      setVisualDialogStage(null);
+    }
+  };
+
   const applyCornerWindows = (windows: CornerWindowVisual[]) => {
     const searchWindows = windows.reduce<NonNullable<OMRTemplate["cornerSearchWindows"]>>(
       (accumulator, cornerWindow) => {
@@ -186,42 +211,44 @@ export default function HomePage() {
       {}
     );
 
-    setActiveTemplate((current) => {
-      const nextCornerMarkers = current.cornerMarkers.map((marker) => {
-        const cornerWindow = windows.find((window) => window.id === marker.id);
-        if (!cornerWindow) {
-          return marker;
-        }
+    const currentTemplate = activeTemplateRef.current;
+    const nextCornerMarkers = currentTemplate.cornerMarkers.map((marker) => {
+      const cornerWindow = windows.find((window) => window.id === marker.id);
+      if (!cornerWindow) {
+        return marker;
+      }
 
-        const nextWidth = Math.max(0.004, marker.w);
-        const nextHeight = Math.max(0.004, marker.h);
-        const centerX = cornerWindow.x + cornerWindow.w / 2;
-        const centerY = cornerWindow.y + cornerWindow.h / 2;
+      const nextWidth = Math.max(0.004, marker.w);
+      const nextHeight = Math.max(0.004, marker.h);
+      const centerX = cornerWindow.x + cornerWindow.w / 2;
+      const centerY = cornerWindow.y + cornerWindow.h / 2;
 
-        const nextX = Math.min(1 - nextWidth, Math.max(0, centerX - nextWidth / 2));
-        const nextY = Math.min(1 - nextHeight, Math.max(0, centerY - nextHeight / 2));
-
-        return {
-          ...marker,
-          x: nextX,
-          y: nextY,
-          w: nextWidth,
-          h: nextHeight
-        };
-      });
+      const nextX = Math.min(1 - nextWidth, Math.max(0, centerX - nextWidth / 2));
+      const nextY = Math.min(1 - nextHeight, Math.max(0, centerY - nextHeight / 2));
 
       return {
-        ...current,
-        cornerSearchWindows: searchWindows,
-        cornerMarkers: nextCornerMarkers
+        ...marker,
+        x: nextX,
+        y: nextY,
+        w: nextWidth,
+        h: nextHeight
       };
     });
+
+    const nextTemplate: OMRTemplate = {
+      ...currentTemplate,
+      cornerSearchWindows: searchWindows,
+      cornerMarkers: nextCornerMarkers
+    };
+
+    setActiveTemplate(nextTemplate);
     setVisualDialogError(null);
     setVisualSteps((current) =>
       current.map((step) => (step.id === "corners" ? { ...step, cornerWindows: windows } : step))
     );
     setCalibrationMessage("Corner search windows applied. Next scan will use these regions.");
     setVisualDialogStage("Corner windows applied. Next scan will use these search regions.");
+    void rebuildVisualStepsForTemplate(nextTemplate, "Refreshing transformed sheet preview...");
   };
 
   const captureCornerSnapshots = (
@@ -243,13 +270,15 @@ export default function HomePage() {
   };
 
   const applyRoiBoxes = (boxes: RoiBoxVisual[]) => {
-    setActiveTemplate((current) => applyRoiBoxesToTemplate(current, boxes));
+    const nextTemplate = applyRoiBoxesToTemplate(activeTemplateRef.current, boxes);
+    setActiveTemplate(nextTemplate);
     setVisualDialogError(null);
     setVisualSteps((current) =>
       current.map((step) => (step.id === "regions" ? { ...step, roiBoxes: boxes } : step))
     );
     setCalibrationMessage("ROI boxes applied. Next scan will use these extraction regions.");
     setVisualDialogStage("ROI boxes applied. Next scan will use these extraction regions.");
+    void rebuildVisualStepsForTemplate(nextTemplate, "Refreshing ROI preview...");
   };
 
   return (

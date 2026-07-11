@@ -1,4 +1,5 @@
 import { prepareImageForScan } from "@/lib/omr/prepareImageForScan";
+import { loadOpenCv } from "@/lib/omr/opencvLoader";
 import {
   deriveRoiBoxesFromTemplate,
   type RoiBoxVisual
@@ -172,6 +173,82 @@ const otsuThreshold = (grayscale: Uint8ClampedArray): number => {
   return threshold;
 };
 
+const rectifyWithCorners = async (
+  baseImage: ImageData,
+  cornersById: Partial<Record<CornerMarker["id"], { x: number; y: number }>>
+): Promise<{ image: ImageData; warped: boolean }> => {
+  const ordered = ["tl", "tr", "br", "bl"]
+    .map((id) => cornersById[id as CornerMarker["id"]])
+    .filter((value): value is { x: number; y: number } => Boolean(value));
+  if (ordered.length !== 4) {
+    return { image: baseImage, warped: false };
+  }
+
+  try {
+    const cv = await loadOpenCv();
+    const sourceCanvas = toCanvas(baseImage.width, baseImage.height);
+    const sourceContext = sourceCanvas.getContext("2d");
+    if (!sourceContext) {
+      return { image: baseImage, warped: false };
+    }
+    sourceContext.putImageData(baseImage, 0, 0);
+
+    const src = cv.imread(sourceCanvas);
+    const dst = new cv.Mat();
+    const srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      ordered[0].x,
+      ordered[0].y,
+      ordered[1].x,
+      ordered[1].y,
+      ordered[2].x,
+      ordered[2].y,
+      ordered[3].x,
+      ordered[3].y
+    ]);
+    const dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      0,
+      0,
+      baseImage.width - 1,
+      0,
+      baseImage.width - 1,
+      baseImage.height - 1,
+      0,
+      baseImage.height - 1
+    ]);
+    const transform = cv.getPerspectiveTransform(srcTri, dstTri);
+    cv.warpPerspective(
+      src,
+      dst,
+      transform,
+      new cv.Size(baseImage.width, baseImage.height),
+      cv.INTER_LINEAR,
+      cv.BORDER_CONSTANT
+    );
+
+    const outputCanvas = toCanvas(baseImage.width, baseImage.height);
+    cv.imshow(outputCanvas, dst);
+    const outputContext = outputCanvas.getContext("2d");
+    if (!outputContext) {
+      src.delete();
+      dst.delete();
+      srcTri.delete();
+      dstTri.delete();
+      transform.delete();
+      return { image: baseImage, warped: false };
+    }
+    const warped = outputContext.getImageData(0, 0, baseImage.width, baseImage.height);
+
+    src.delete();
+    dst.delete();
+    srcTri.delete();
+    dstTri.delete();
+    transform.delete();
+    return { image: warped, warped: true };
+  } catch {
+    return { image: baseImage, warped: false };
+  }
+};
+
 export const buildVisualParsingSteps = async (
   file: File,
   template: OMRTemplate,
@@ -240,6 +317,17 @@ export const buildVisualParsingSteps = async (
     detectedY: detection.point.y / normalizedImage.height,
     usedFallback: detection.usedFallback
   }));
+  const cornersById = template.cornerMarkers.reduce<
+    Partial<Record<CornerMarker["id"], { x: number; y: number }>>
+  >((accumulator, marker, index) => {
+    const detection = cornerDetections[index];
+    accumulator[marker.id] = { x: detection.point.x, y: detection.point.y };
+    return accumulator;
+  }, {});
+
+  onStage?.("Applying perspective transform...");
+  const rectified = await rectifyWithCorners(normalizedImage, cornersById);
+  const rectifiedImageDataUrl = toDataUrl(rectified.image);
 
   onStage?.("Drawing region overlays...");
   const roiBoxes = deriveRoiBoxesFromTemplate(template);
@@ -261,9 +349,9 @@ export const buildVisualParsingSteps = async (
     }
   });
 
-  const roiOverlayUrl = drawDataUrl(normalizedImage, (ctx) => {
+  const roiOverlayUrl = drawDataUrl(rectified.image, (ctx) => {
     const drawLabel = (label: string, region: BubbleRegion, color: string) => {
-      const rect = normalizeRect(region, normalizedImage.width, normalizedImage.height);
+      const rect = normalizeRect(region, rectified.image.width, rectified.image.height);
       ctx.strokeStyle = color;
       ctx.lineWidth = 2;
       ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
@@ -320,7 +408,7 @@ export const buildVisualParsingSteps = async (
     },
     {
       id: "corners",
-      title: "Step 4: Corner marker detection",
+      title: "Step 1: Corner marker detection",
       description:
         "Green boxes are expanded search windows. Dots are detected marker centers (orange means fallback center).",
       imageDataUrl: cornerOverlayUrl,
@@ -328,12 +416,20 @@ export const buildVisualParsingSteps = async (
       cornerWindows
     },
     {
+      id: "rectified",
+      title: "Step 2: Perspective transformed sheet",
+      description: rectified.warped
+        ? "Sheet was straightened using detected corner positions."
+        : "Perspective transform fallback used original normalized image.",
+      imageDataUrl: rectifiedImageDataUrl
+    },
+    {
       id: "regions",
-      title: "Step 5: Region-of-interest map",
+      title: "Step 3: Region-of-interest map",
       description:
-        "Student ID, Exam Code, Exam Set, and 3 answer columns highlighted for extraction.",
+        "Student ID, Exam Code, Exam Set, and 3 answer columns highlighted for extraction on transformed sheet.",
       imageDataUrl: roiOverlayUrl,
-      baseImageDataUrl: normalizedImageDataUrl,
+      baseImageDataUrl: rectifiedImageDataUrl,
       roiBoxes
     }
   ];

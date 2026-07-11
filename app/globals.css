@@ -104,11 +104,14 @@ pre {
 .modal-card {
   width: min(1100px, 100%);
   max-height: 90vh;
-  overflow: auto;
+  overflow: hidden;
   border: 1px solid #6664;
   border-radius: 12px;
   padding: 1rem;
   background: #0c0c0c;
+  display: grid;
+  grid-template-rows: auto auto auto auto 1fr auto;
+  gap: 0.6rem;
 }
 
 .modal-header {
@@ -122,6 +125,30 @@ pre {
   display: grid;
   gap: 1rem;
   margin-top: 0.8rem;
+}
+
+.wizard-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.wizard-page {
+  overflow: auto;
+  min-height: 0;
+  padding-right: 0.25rem;
+}
+
+.wizard-image-page img {
+  max-height: 56vh;
+  object-fit: contain;
+}
+
+.wizard-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
 .step-card {

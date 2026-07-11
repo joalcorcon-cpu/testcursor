@@ -339,10 +339,13 @@ export function VisualParsingDialog({
   onApplyRoiBoxes,
   onClose
 }: VisualParsingDialogProps) {
+  const [pageIndex, setPageIndex] = useState(0);
+  const wizardPages = ["corners", "transform", "roi"] as const;
   const cornerStep = useMemo(
     () => steps.find((step) => step.id === "corners" && step.cornerWindows?.length),
     [steps]
   );
+  const transformStep = useMemo(() => steps.find((step) => step.id === "rectified"), [steps]);
   const roiStep = useMemo(
     () => steps.find((step) => step.id === "regions" && step.roiBoxes?.length),
     [steps]
@@ -352,44 +355,98 @@ export function VisualParsingDialog({
     return null;
   }
 
+  const handleClose = () => {
+    setPageIndex(0);
+    onClose();
+  };
+
+  const currentPage = wizardPages[Math.min(pageIndex, wizardPages.length - 1)];
+  const pageTitle =
+    currentPage === "corners"
+      ? "Page 1: Corner Regions"
+      : currentPage === "transform"
+        ? "Page 2: Perspective Transform"
+        : "Page 3: ROI Selection";
+
+  const canGoBack = pageIndex > 0;
+  const canGoNext = pageIndex < wizardPages.length - 1;
+
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="modal-card" role="dialog" aria-modal="true">
         <header className="modal-header">
           <h2>Visual Parse Debug</h2>
-          <button onClick={onClose}>Close</button>
+          <button onClick={handleClose}>Close</button>
         </header>
+        <div className="wizard-topline">
+          <strong>{pageTitle}</strong>
+          <span className="subtle-text">
+            Step {pageIndex + 1} / {wizardPages.length}
+          </span>
+        </div>
         {loading ? <p className="subtle-text">{stage ?? "Preparing visual steps..."}</p> : null}
         {error ? <p className="error">{error}</p> : null}
         {!loading && !error && steps.length === 0 ? (
           <p className="subtle-text">No visual steps available yet.</p>
         ) : null}
-        {cornerStep?.baseImageDataUrl && (cornerStep.cornerWindows?.length ?? 0) > 0 ? (
-          <CornerWindowEditor
-            key={cornerStep.imageDataUrl}
-            baseImageDataUrl={cornerStep.baseImageDataUrl}
-            initialCornerWindows={cornerStep.cornerWindows ?? []}
-            onApplyCornerWindows={onApplyCornerWindows}
-            onCaptureCornerSnapshots={onCaptureCornerSnapshots}
-          />
-        ) : null}
-        {roiStep?.baseImageDataUrl && (roiStep.roiBoxes?.length ?? 0) > 0 ? (
-          <RoiBoxEditor
-            key={roiStep.imageDataUrl}
-            baseImageDataUrl={roiStep.baseImageDataUrl}
-            initialRoiBoxes={roiStep.roiBoxes ?? []}
-            onApplyRoiBoxes={onApplyRoiBoxes}
-          />
-        ) : null}
-        <div className="step-list">
-          {steps.map((step) => (
-            <article key={step.id} className="step-card">
-              <h3>{step.title}</h3>
-              <p className="subtle-text">{step.description}</p>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={step.imageDataUrl} alt={step.title} />
-            </article>
-          ))}
+
+        <div className="wizard-page">
+          {!loading && !error && currentPage === "corners" ? (
+            cornerStep?.baseImageDataUrl && (cornerStep.cornerWindows?.length ?? 0) > 0 ? (
+              <CornerWindowEditor
+                key={cornerStep.imageDataUrl}
+                baseImageDataUrl={cornerStep.baseImageDataUrl}
+                initialCornerWindows={cornerStep.cornerWindows ?? []}
+                onApplyCornerWindows={onApplyCornerWindows}
+                onCaptureCornerSnapshots={onCaptureCornerSnapshots}
+              />
+            ) : (
+              <p className="subtle-text">Corner step is not available for this image.</p>
+            )
+          ) : null}
+
+          {!loading && !error && currentPage === "transform" ? (
+            transformStep ? (
+              <article key={transformStep.id} className="step-card wizard-image-page">
+                <h3>{transformStep.title}</h3>
+                <p className="subtle-text">{transformStep.description}</p>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={transformStep.imageDataUrl} alt={transformStep.title} />
+              </article>
+            ) : (
+              <p className="subtle-text">Perspective transform preview is not available.</p>
+            )
+          ) : null}
+
+          {!loading && !error && currentPage === "roi" ? (
+            roiStep?.baseImageDataUrl && (roiStep.roiBoxes?.length ?? 0) > 0 ? (
+              <RoiBoxEditor
+                key={roiStep.imageDataUrl}
+                baseImageDataUrl={roiStep.baseImageDataUrl}
+                initialRoiBoxes={roiStep.roiBoxes ?? []}
+                onApplyRoiBoxes={onApplyRoiBoxes}
+              />
+            ) : (
+              <p className="subtle-text">ROI step is not available for this image.</p>
+            )
+          ) : null}
+        </div>
+
+        <div className="wizard-nav">
+          <button disabled={!canGoBack} onClick={() => setPageIndex((value) => Math.max(0, value - 1))}>
+            Back
+          </button>
+          {canGoNext ? (
+            <button
+              onClick={() =>
+                setPageIndex((value) => Math.min(wizardPages.length - 1, value + 1))
+              }
+            >
+              Next
+            </button>
+          ) : (
+            <button onClick={handleClose}>Done</button>
+          )}
         </div>
       </section>
     </div>

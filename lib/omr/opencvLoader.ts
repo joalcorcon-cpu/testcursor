@@ -44,6 +44,7 @@ declare global {
         flags?: number,
         borderMode?: number
       ) => void;
+      imshow: (canvas: HTMLCanvasElement | string, mat: CvMat) => void;
       countNonZero: (src: CvMat) => number;
       COLOR_RGBA2GRAY: number;
       ADAPTIVE_THRESH_GAUSSIAN_C: number;
