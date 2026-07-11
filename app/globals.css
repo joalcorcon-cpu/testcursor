@@ -99,6 +99,7 @@ pre {
   place-items: center;
   padding: 1rem;
   z-index: 1000;
+  overscroll-behavior: contain;
 }
 
 .modal-card {
@@ -138,6 +139,8 @@ pre {
   overflow: auto;
   min-height: 0;
   padding-right: 0.25rem;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .wizard-image-page img {

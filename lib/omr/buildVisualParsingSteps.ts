@@ -564,10 +564,10 @@ export const buildVisualParsingSteps = async (
 
     const drawOuter = (label: string, region: BubbleRegion) => {
       const rect = normalizeRect(region, rectified.image.width, rectified.image.height);
-      ctx.strokeStyle = "#ff4747";
+      ctx.strokeStyle = "#00ff95";
       ctx.lineWidth = 2.5;
       ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-      ctx.fillStyle = "#ff4747";
+      ctx.fillStyle = "#00ff95";
       ctx.font = "12px Arial";
       ctx.fillText(label, rect.x + 4, rect.y - 6);
     };
