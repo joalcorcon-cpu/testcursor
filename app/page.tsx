@@ -5,6 +5,7 @@ import { ScanUploader } from "@/components/ScanUploader";
 import { ResultsReview } from "@/components/ResultsReview";
 import { processSheetFileInWorker } from "@/lib/omr/processSheetInWorker";
 import { processSheetFile } from "@/lib/omr/processSheet";
+import { prepareImageForScan } from "@/lib/omr/prepareImageForScan";
 import { defaultSheetTemplate } from "@/lib/templates/defaultSheetTemplate";
 import type { OMRResultJson, ScanRecord } from "@/types/omr";
 
@@ -52,10 +53,15 @@ export default function HomePage() {
     const controller = new AbortController();
     setAbortController(controller);
     try {
+      setScanStage("Validating and normalizing image...");
+      const prepared = await prepareImageForScan(file);
+      const workerBuffer = prepared.buffer.slice(0);
+
       let scanned: OMRResultJson;
       try {
         scanned = await processSheetFileInWorker(
-          file,
+          workerBuffer,
+          prepared.mimeType,
           defaultSheetTemplate,
           (stage) => setScanStage(stage),
           controller.signal
@@ -65,7 +71,10 @@ export default function HomePage() {
           throw workerError;
         }
         setScanStage("Worker unavailable, running compatibility scan...");
-        scanned = await processSheetFile(file);
+        const compatibilityFile = new File([prepared.buffer], file.name, {
+          type: prepared.mimeType
+        });
+        scanned = await processSheetFile(compatibilityFile);
       }
       setResult(scanned);
       if (!sourceName) {

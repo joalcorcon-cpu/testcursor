@@ -8,7 +8,8 @@ type WorkerMessage =
 const WORKER_TIMEOUT_MS = 20000;
 
 export const processSheetFileInWorker = async (
-  file: File,
+  fileBuffer: ArrayBuffer,
+  mimeType: string,
   template: OMRTemplate,
   onProgress?: (stage: string) => void,
   signal?: AbortSignal
@@ -16,8 +17,6 @@ export const processSheetFileInWorker = async (
   if (typeof window === "undefined" || typeof Worker === "undefined") {
     throw new Error("Web Worker scanning is not supported in this environment.");
   }
-
-  const fileBuffer = await file.arrayBuffer();
 
   return await new Promise<OMRResultJson>((resolve, reject) => {
     const worker = new Worker("/omr-worker.js");
@@ -76,7 +75,7 @@ export const processSheetFileInWorker = async (
       {
         type: "scan",
         fileBuffer,
-        mimeType: file.type,
+        mimeType,
         template
       },
       [fileBuffer]
