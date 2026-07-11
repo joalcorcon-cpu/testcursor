@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ScanUploader } from "@/components/ScanUploader";
 import { ResultsReview } from "@/components/ResultsReview";
-import { processSheetFileInWorker } from "@/lib/omr/processSheetInWorker";
+import { processSheetFileInWorker, warmupOmrWorker } from "@/lib/omr/processSheetInWorker";
 import { prepareImageForScan } from "@/lib/omr/prepareImageForScan";
 import { defaultSheetTemplate } from "@/lib/templates/defaultSheetTemplate";
 import type { OMRResultJson, ScanRecord } from "@/types/omr";
@@ -25,6 +25,12 @@ export default function HomePage() {
     from: "",
     to: ""
   });
+
+  useEffect(() => {
+    void warmupOmrWorker().catch(() => {
+      // Warmup is best-effort; detailed errors surface during an explicit scan request.
+    });
+  }, []);
 
   const refreshScans = async () => {
     const params = new URLSearchParams();

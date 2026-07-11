@@ -3,7 +3,7 @@ const OPENCV_READY_TIMEOUT_MS = 60000;
 const MAX_RGBA_BYTES = 25 * 1024 * 1024;
 
 let cvReadyPromise = null;
-let currentStage = "worker-start";
+const currentStageByRequest = new Map();
 
 const isCvReady = () =>
   Boolean(self.cv && typeof self.cv.Mat === "function" && typeof self.cv.matFromImageData === "function");
@@ -249,12 +249,12 @@ const rectifySheet = (cv, gray, thresholded, template) => {
   return { thresholded: warpedBinary, warped: true };
 };
 
-const postProgress = (stage) => {
-  currentStage = stage;
-  self.postMessage({ type: "progress", stage });
+const postProgress = (requestId, stage) => {
+  currentStageByRequest.set(requestId, stage);
+  self.postMessage({ type: "progress", requestId, stage });
 };
 
-const runScan = async ({ imageRgbaBuffer, width, height, template }) => {
+const runScan = async ({ requestId, imageRgbaBuffer, width, height, template }) => {
   if (!(imageRgbaBuffer instanceof ArrayBuffer)) {
     throw new Error("Invalid scan payload.");
   }
@@ -265,30 +265,30 @@ const runScan = async ({ imageRgbaBuffer, width, height, template }) => {
     throw new Error("Normalized image payload is too large to process.");
   }
 
-  postProgress("Loading OpenCV runtime...");
+  postProgress(requestId, "Loading OpenCV runtime...");
   const cv = await loadOpenCv();
 
-  postProgress("Preprocessing image...");
+  postProgress(requestId, "Preprocessing image...");
   const { gray, binary } = makeThresholdedSheet(cv, imageRgbaBuffer, width, height);
 
-  postProgress("Aligning sheet...");
+  postProgress(requestId, "Aligning sheet...");
   const rectified = rectifySheet(cv, gray, binary, template);
   gray.delete();
 
   const thresholded = rectified.thresholded;
   try {
-    postProgress("Scoring ID and exam fields...");
+    postProgress(requestId, "Scoring ID and exam fields...");
     const studentId = scoreDigitColumns(cv, thresholded, template.studentId.columns);
     const examCode = scoreDigitColumns(cv, thresholded, template.examCode.columns);
     const examSetScores = computeChoiceScores(cv, thresholded, template.examSet.choices);
     const examSetDecision = pickSelections(examSetScores);
 
     const answers = [];
-    postProgress("Scoring answers...");
+    postProgress(requestId, "Scoring answers...");
     for (let index = 0; index < template.answers.length; index += 1) {
       answers.push(scoreAnswer(cv, thresholded, template.answers[index]));
       if ((index + 1) % 20 === 0) {
-        postProgress(`Scoring answers (${index + 1}/${template.answers.length})...`);
+        postProgress(requestId, `Scoring answers (${index + 1}/${template.answers.length})...`);
       }
     }
 
@@ -318,15 +318,35 @@ const runScan = async ({ imageRgbaBuffer, width, height, template }) => {
 
 self.onmessage = async (event) => {
   const { data } = event;
-  if (!data || data.type !== "scan") {
+  if (!data || !data.type) {
     return;
   }
 
+  if (data.type === "init") {
+    try {
+      await loadOpenCv();
+      self.postMessage({ type: "ready" });
+    } catch (error) {
+      self.postMessage({
+        type: "init-error",
+        message:
+          error instanceof Error ? error.message : "Unable to initialize OpenCV runtime in worker."
+      });
+    }
+    return;
+  }
+
+  if (data.type !== "scan") {
+    return;
+  }
+
+  const requestId = data.requestId;
+  currentStageByRequest.set(requestId, "worker-start");
   try {
-    currentStage = "run-scan";
     const result = await runScan(data);
-    self.postMessage({ type: "result", result });
+    self.postMessage({ type: "result", requestId, result });
   } catch (error) {
+    const currentStage = currentStageByRequest.get(requestId) || "unknown";
     const message = error instanceof Error ? error.message : "Scan failed in worker.";
     const stackTop =
       error instanceof Error && typeof error.stack === "string"
@@ -334,9 +354,12 @@ self.onmessage = async (event) => {
         : "";
     self.postMessage({
       type: "error",
+      requestId,
       message,
       stage: currentStage,
       stack: stackTop
     });
+  } finally {
+    currentStageByRequest.delete(requestId);
   }
 };
