@@ -6,6 +6,7 @@ interface ScanUploaderProps {
   loading: boolean;
   hasFile: boolean;
   stage: string | null;
+  calibrationMessage: string | null;
   onSourceNameChange: (value: string) => void;
   onUploaderChange: (value: string) => void;
   onFileChange: (file: File | null) => void;
@@ -20,6 +21,7 @@ export function ScanUploader({
   loading,
   hasFile,
   stage,
+  calibrationMessage,
   onSourceNameChange,
   onUploaderChange,
   onFileChange,
@@ -64,6 +66,7 @@ export function ScanUploader({
         </button>
         {loading ? <button onClick={onCancelScan}>Cancel Scan</button> : null}
       </div>
+      {!loading && calibrationMessage ? <p className="subtle-text">{calibrationMessage}</p> : null}
       {loading && stage ? <p className="subtle-text">{stage}</p> : null}
     </section>
   );

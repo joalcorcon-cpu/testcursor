@@ -148,7 +148,7 @@ const detectCornerPoint = (cv, thresholded, marker, customSearchRegion) => {
 
     if (bestPoint) {
       roi.delete();
-      return { x: bestPoint.x, y: bestPoint.y };
+      return { x: bestPoint.x, y: bestPoint.y, found: true };
     }
   }
 
@@ -171,13 +171,15 @@ const detectCornerPoint = (cv, thresholded, marker, customSearchRegion) => {
   if (count < rect.width * rect.height * 0.01) {
     return {
       x: rect.x + rect.width / 2,
-      y: rect.y + rect.height / 2
+      y: rect.y + rect.height / 2,
+      found: false
     };
   }
 
   return {
     x: rect.x + sumX / count,
-    y: rect.y + sumY / count
+    y: rect.y + sumY / count,
+    found: true
   };
 };
 
@@ -252,9 +254,15 @@ const rectifySheet = (cv, gray, thresholded, template) => {
     return { thresholded, warped: false };
   }
 
-  const corners = orderedMarkers.map((marker) =>
+  const cornerDetections = orderedMarkers.map((marker) =>
     detectCornerPoint(cv, thresholded, marker, template.cornerSearchWindows?.[marker.id])
   );
+  const foundCount = cornerDetections.filter((corner) => corner.found).length;
+  if (foundCount < 4) {
+    workerLog("Corner detection incomplete", { foundCount });
+    return { thresholded, warped: false };
+  }
+  const corners = cornerDetections.map((corner) => ({ x: corner.x, y: corner.y }));
   const cornerLayoutIsValid =
     corners[0].x < corners[1].x &&
     corners[3].x < corners[2].x &&

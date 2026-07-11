@@ -35,6 +35,7 @@ export default function HomePage() {
   const [visualDialogStage, setVisualDialogStage] = useState<string | null>(null);
   const [visualDialogError, setVisualDialogError] = useState<string | null>(null);
   const [visualSteps, setVisualSteps] = useState<VisualParseStep[]>([]);
+  const [calibrationMessage, setCalibrationMessage] = useState<string | null>(null);
   const [savedScans, setSavedScans] = useState<ScanRecord[]>([]);
   const [filters, setFilters] = useState({
     sourceName: "",
@@ -105,6 +106,10 @@ export default function HomePage() {
 
   const cancelScan = () => {
     abortController?.abort();
+  };
+
+  const handleFileChange = (nextFile: File | null) => {
+    setFile(nextFile);
   };
 
   const saveScan = async () => {
@@ -213,6 +218,7 @@ export default function HomePage() {
     setVisualSteps((current) =>
       current.map((step) => (step.id === "corners" ? { ...step, cornerWindows: windows } : step))
     );
+    setCalibrationMessage("Corner search windows applied. Next scan will use these regions.");
     setVisualDialogStage("Corner windows applied. Next scan will use these search regions.");
   };
 
@@ -229,9 +235,10 @@ export default function HomePage() {
           loading={loading}
           hasFile={Boolean(file)}
           stage={scanStage}
+          calibrationMessage={calibrationMessage}
           onSourceNameChange={setSourceName}
           onUploaderChange={setUploader}
-          onFileChange={setFile}
+          onFileChange={handleFileChange}
           onRunScan={runScan}
           onCancelScan={cancelScan}
           onOpenVisualDialog={openVisualDialog}
