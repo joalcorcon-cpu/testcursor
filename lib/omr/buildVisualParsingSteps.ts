@@ -1,5 +1,5 @@
 import { prepareImageForScan } from "@/lib/omr/prepareImageForScan";
-import type { BubbleRegion, OMRTemplate } from "@/types/omr";
+import type { BubbleRegion, CornerMarker, OMRTemplate } from "@/types/omr";
 
 export interface VisualParseStep {
   id: string;
@@ -45,6 +45,64 @@ const normalizeRect = (region: BubbleRegion, width: number, height: number) => (
   w: Math.max(1, Math.round(region.w * width)),
   h: Math.max(1, Math.round(region.h * height))
 });
+
+const expandMarker = (marker: CornerMarker, factor = 4): BubbleRegion => {
+  const centerX = marker.x + marker.w / 2;
+  const centerY = marker.y + marker.h / 2;
+  const width = marker.w * factor;
+  const height = marker.h * factor;
+  return {
+    x: centerX - width / 2,
+    y: centerY - height / 2,
+    w: width,
+    h: height
+  };
+};
+
+const detectCornerCentroid = (
+  thresholdMap: Uint8ClampedArray,
+  width: number,
+  height: number,
+  marker: CornerMarker
+) => {
+  const searchRect = normalizeRect(expandMarker(marker, 4), width, height);
+  let sumX = 0;
+  let sumY = 0;
+  let count = 0;
+  for (let y = searchRect.y; y < searchRect.y + searchRect.h; y += 1) {
+    for (let x = searchRect.x; x < searchRect.x + searchRect.w; x += 1) {
+      if (x < 0 || x >= width || y < 0 || y >= height) {
+        continue;
+      }
+      const idx = y * width + x;
+      if (thresholdMap[idx] > 0) {
+        sumX += x;
+        sumY += y;
+        count += 1;
+      }
+    }
+  }
+
+  if (count < searchRect.w * searchRect.h * 0.01) {
+    return {
+      searchRect,
+      point: {
+        x: searchRect.x + searchRect.w / 2,
+        y: searchRect.y + searchRect.h / 2
+      },
+      usedFallback: true
+    };
+  }
+
+  return {
+    searchRect,
+    point: {
+      x: sumX / count,
+      y: sumY / count
+    },
+    usedFallback: false
+  };
+};
 
 const flattenRegions = (groups: BubbleRegion[][]): BubbleRegion[] =>
   groups.flatMap((group) => group);
@@ -139,9 +197,11 @@ export const buildVisualParsingSteps = async (
   onStage?.("Computing threshold map...");
   const threshold = otsuThreshold(grayscale);
   const thresholdRgba = new Uint8ClampedArray(normalizedImage.data.length);
+  const thresholdMask = new Uint8ClampedArray(grayscale.length);
   for (let index = 0; index < grayscale.length; index += 1) {
     const rgbaIndex = index * 4;
     const value = grayscale[index] <= threshold ? 255 : 0;
+    thresholdMask[index] = value;
     thresholdRgba[rgbaIndex] = value;
     thresholdRgba[rgbaIndex + 1] = value;
     thresholdRgba[rgbaIndex + 2] = value;
@@ -151,6 +211,9 @@ export const buildVisualParsingSteps = async (
     thresholdRgba,
     normalizedImage.width,
     normalizedImage.height
+  );
+  const cornerDetections = template.cornerMarkers.map((marker) =>
+    detectCornerCentroid(thresholdMask, normalizedImage.width, normalizedImage.height, marker)
   );
 
   onStage?.("Drawing region overlays...");
@@ -175,12 +238,18 @@ export const buildVisualParsingSteps = async (
 
   const cornerOverlayUrl = drawDataUrl(normalizedImage, (ctx) => {
     ctx.lineWidth = 3;
-    ctx.strokeStyle = "#00ff95";
-    for (const marker of template.cornerMarkers) {
-      const rect = normalizeRect(marker, normalizedImage.width, normalizedImage.height);
-      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-      ctx.fillStyle = "#00ff95";
-      ctx.fillRect(rect.x + rect.w / 2 - 2, rect.y + rect.h / 2 - 2, 4, 4);
+    for (const detection of cornerDetections) {
+      ctx.strokeStyle = "#00ff95";
+      ctx.strokeRect(
+        detection.searchRect.x,
+        detection.searchRect.y,
+        detection.searchRect.w,
+        detection.searchRect.h
+      );
+      ctx.fillStyle = detection.usedFallback ? "#ff9f43" : "#00ff95";
+      ctx.beginPath();
+      ctx.arc(detection.point.x, detection.point.y, 4, 0, Math.PI * 2);
+      ctx.fill();
     }
   });
 
@@ -227,9 +296,9 @@ export const buildVisualParsingSteps = async (
     },
     {
       id: "corners",
-      title: "Step 4: Corner marker search windows",
+      title: "Step 4: Corner marker detection",
       description:
-        "Expected corner marker regions used to align sheet geometry before bubble scoring.",
+        "Green boxes are expanded search windows. Dots are detected marker centers (orange means fallback center).",
       imageDataUrl: cornerOverlayUrl
     },
     {

@@ -53,6 +53,19 @@ const normalizeRegion = (region, width, height) => {
   return { x, y, width: w, height: h };
 };
 
+const expandMarkerRegion = (marker, factor = 4) => {
+  const centerX = marker.x + marker.w / 2;
+  const centerY = marker.y + marker.h / 2;
+  const width = marker.w * factor;
+  const height = marker.h * factor;
+  return {
+    x: centerX - width / 2,
+    y: centerY - height / 2,
+    w: width,
+    h: height
+  };
+};
+
 const regionShadeScore = (cv, thresholded, region) => {
   const rect = normalizeRegion(region, thresholded.cols, thresholded.rows);
   const roi = thresholded.roi(rect);
@@ -84,9 +97,61 @@ const pickSelections = (scores, minMarkThreshold = 0.18, ambiguityGap = 0.03) =>
   };
 };
 
-const detectCornerPoint = (thresholded, marker) => {
-  const rect = normalizeRegion(marker, thresholded.cols, thresholded.rows);
+const detectCornerPoint = (cv, thresholded, marker) => {
+  const searchRegion = expandMarkerRegion(marker, 4);
+  const rect = normalizeRegion(searchRegion, thresholded.cols, thresholded.rows);
   const roi = thresholded.roi(rect);
+  const expectedX = (marker.x + marker.w / 2) * thresholded.cols - rect.x;
+  const expectedY = (marker.y + marker.h / 2) * thresholded.rows - rect.y;
+
+  if (
+    typeof cv.findContours === "function" &&
+    typeof cv.contourArea === "function" &&
+    typeof cv.boundingRect === "function" &&
+    typeof cv.RETR_EXTERNAL === "number" &&
+    typeof cv.CHAIN_APPROX_SIMPLE === "number"
+  ) {
+    const contours = new cv.MatVector();
+    const hierarchy = new cv.Mat();
+    let bestPoint = null;
+    try {
+      cv.findContours(roi, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+      for (let index = 0; index < contours.size(); index += 1) {
+        const contour = contours.get(index);
+        try {
+          const area = cv.contourArea(contour, false);
+          if (area < rect.width * rect.height * 0.002) {
+            continue;
+          }
+          const bounds = cv.boundingRect(contour);
+          const aspect = bounds.width / Math.max(bounds.height, 1);
+          const aspectPenalty = Math.abs(1 - aspect);
+          const centerX = bounds.x + bounds.width / 2;
+          const centerY = bounds.y + bounds.height / 2;
+          const dist = Math.hypot(centerX - expectedX, centerY - expectedY);
+          const score = area - dist * 3 - aspectPenalty * area * 0.7;
+          if (!bestPoint || score > bestPoint.score) {
+            bestPoint = {
+              score,
+              x: rect.x + centerX,
+              y: rect.y + centerY
+            };
+          }
+        } finally {
+          contour.delete();
+        }
+      }
+    } finally {
+      contours.delete();
+      hierarchy.delete();
+    }
+
+    if (bestPoint) {
+      roi.delete();
+      return { x: bestPoint.x, y: bestPoint.y };
+    }
+  }
+
   let count = 0;
   let sumX = 0;
   let sumY = 0;
@@ -187,7 +252,27 @@ const rectifySheet = (cv, gray, thresholded, template) => {
     return { thresholded, warped: false };
   }
 
-  const corners = orderedMarkers.map((marker) => detectCornerPoint(thresholded, marker));
+  const corners = orderedMarkers.map((marker) => detectCornerPoint(cv, thresholded, marker));
+  const cornerLayoutIsValid =
+    corners[0].x < corners[1].x &&
+    corners[3].x < corners[2].x &&
+    corners[0].y < corners[3].y &&
+    corners[1].y < corners[2].y;
+  const polygonArea =
+    Math.abs(
+      corners[0].x * corners[1].y +
+        corners[1].x * corners[2].y +
+        corners[2].x * corners[3].y +
+        corners[3].x * corners[0].y -
+        (corners[1].x * corners[0].y +
+          corners[2].x * corners[1].y +
+          corners[3].x * corners[2].y +
+          corners[0].x * corners[3].y)
+    ) / 2;
+  if (!cornerLayoutIsValid || polygonArea < thresholded.cols * thresholded.rows * 0.25) {
+    return { thresholded, warped: false };
+  }
+
   const srcPoints = cv.matFromArray(
     4,
     1,
