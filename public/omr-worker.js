@@ -3,6 +3,7 @@ const OPENCV_READY_TIMEOUT_MS = 60000;
 const MAX_RGBA_BYTES = 25 * 1024 * 1024;
 
 let cvReadyPromise = null;
+let currentStage = "worker-start";
 
 const isCvReady = () =>
   Boolean(self.cv && typeof self.cv.Mat === "function" && typeof self.cv.matFromImageData === "function");
@@ -249,6 +250,7 @@ const rectifySheet = (cv, gray, thresholded, template) => {
 };
 
 const postProgress = (stage) => {
+  currentStage = stage;
   self.postMessage({ type: "progress", stage });
 };
 
@@ -321,12 +323,20 @@ self.onmessage = async (event) => {
   }
 
   try {
+    currentStage = "run-scan";
     const result = await runScan(data);
     self.postMessage({ type: "result", result });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Scan failed in worker.";
+    const stackTop =
+      error instanceof Error && typeof error.stack === "string"
+        ? error.stack.split("\n").slice(0, 2).join(" | ")
+        : "";
     self.postMessage({
       type: "error",
-      message: error instanceof Error ? error.message : "Scan failed in worker."
+      message,
+      stage: currentStage,
+      stack: stackTop
     });
   }
 };

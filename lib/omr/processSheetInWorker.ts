@@ -3,7 +3,7 @@ import type { OMRResultJson, OMRTemplate } from "@/types/omr";
 type WorkerMessage =
   | { type: "progress"; stage: string }
   | { type: "result"; result: OMRResultJson }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; stage?: string; stack?: string };
 
 const WORKER_TIMEOUT_MS = 60000;
 
@@ -58,7 +58,9 @@ export const processSheetFileInWorker = async (
       }
       if (payload.type === "error") {
         cleanup();
-        reject(new Error(payload.message));
+        const stagePrefix = payload.stage ? `[${payload.stage}] ` : "";
+        const stackSuffix = payload.stack ? ` (${payload.stack})` : "";
+        reject(new Error(`${stagePrefix}${payload.message}${stackSuffix}`));
         return;
       }
       if (payload.type === "result") {
@@ -67,9 +69,15 @@ export const processSheetFileInWorker = async (
       }
     };
 
-    worker.onerror = () => {
+    worker.onerror = (event) => {
       cleanup();
-      reject(new Error("Worker crashed while processing the scan."));
+      const location = `${event.filename ?? "worker"}:${event.lineno ?? "?"}:${event.colno ?? "?"}`;
+      reject(new Error(`Worker crashed while processing the scan (${location}): ${event.message}`));
+    };
+
+    worker.onmessageerror = () => {
+      cleanup();
+      reject(new Error("Worker message deserialization failed."));
     };
 
     worker.postMessage(

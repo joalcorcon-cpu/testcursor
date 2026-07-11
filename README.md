@@ -85,4 +85,5 @@ No raw image blobs are stored in Supabase by default.
 - Active scans can be cancelled from the upload panel.
 - Uploaded photos are pre-validated and normalized to standard JPEG before scan to reduce decode incompatibilities.
 - OpenCV runtime is served locally (`/public/opencv.js`) so worker loading is same-origin and more reliable.
+- Worker failures include stage-tagged diagnostic errors to speed up root-cause debugging.
 - For production, tune region coordinates and thresholds using real scans from your printer/camera setup.
