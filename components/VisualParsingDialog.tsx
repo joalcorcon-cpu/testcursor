@@ -24,7 +24,7 @@ interface VisualParsingDialogProps {
   onCaptureCornerSnapshots: (
     snapshots: Partial<Record<CornerWindowVisual["id"], CornerSnapshot>>
   ) => void;
-  onApplyRoiBoxes: (boxes: RoiBoxVisual[]) => void;
+  onApplyRoiBoxes: (boxes: RoiBoxVisual[]) => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -43,7 +43,8 @@ interface CornerWindowEditorProps {
 interface RoiBoxEditorProps {
   baseImageDataUrl: string;
   initialRoiBoxes: RoiBoxVisual[];
-  onApplyRoiBoxes: (boxes: RoiBoxVisual[]) => void;
+  onApplyRoiBoxes: (boxes: RoiBoxVisual[]) => void | Promise<void>;
+  onDraftRoiBoxesChange: (boxes: RoiBoxVisual[]) => void;
 }
 
 type DragMode = "move" | "resize-tl" | "resize-tr" | "resize-br" | "resize-bl";
@@ -313,7 +314,12 @@ function CornerWindowEditor({
   );
 }
 
-function RoiBoxEditor({ baseImageDataUrl, initialRoiBoxes, onApplyRoiBoxes }: RoiBoxEditorProps) {
+function RoiBoxEditor({
+  baseImageDataUrl,
+  initialRoiBoxes,
+  onApplyRoiBoxes,
+  onDraftRoiBoxesChange
+}: RoiBoxEditorProps) {
   const [draftRoiBoxes, setDraftRoiBoxes] = useState(initialRoiBoxes);
   const [dragState, setDragState] = useState<{
     id: RoiBoxVisual["id"];
@@ -329,6 +335,10 @@ function RoiBoxEditor({ baseImageDataUrl, initialRoiBoxes, onApplyRoiBoxes }: Ro
     startH: number;
   } | null>(null);
   const editorRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    onDraftRoiBoxesChange(draftRoiBoxes);
+  }, [draftRoiBoxes, onDraftRoiBoxesChange]);
 
   useEffect(() => {
     if (!dragState) {
@@ -460,7 +470,7 @@ function RoiBoxEditor({ baseImageDataUrl, initialRoiBoxes, onApplyRoiBoxes }: Ro
         ))}
       </div>
       <div className="actions">
-        <button onClick={() => onApplyRoiBoxes(draftRoiBoxes)}>Apply ROI Boxes</button>
+        <button onClick={() => void onApplyRoiBoxes(draftRoiBoxes)}>Apply ROI Boxes</button>
         <button
           onClick={() => {
             setDraftRoiBoxes(initialRoiBoxes);
@@ -485,6 +495,8 @@ export function VisualParsingDialog({
   onClose
 }: VisualParsingDialogProps) {
   const [pageIndex, setPageIndex] = useState(0);
+  const [navigationBusy, setNavigationBusy] = useState(false);
+  const [roiDraftBoxes, setRoiDraftBoxes] = useState<RoiBoxVisual[] | null>(null);
   const wizardPages = ["corners", "centroids", "transform", "roi", "readAreas"] as const;
   const cornerStep = useMemo(
     () => steps.find((step) => step.id === "corners" && step.cornerWindows?.length),
@@ -504,6 +516,8 @@ export function VisualParsingDialog({
 
   const handleClose = () => {
     setPageIndex(0);
+    setNavigationBusy(false);
+    setRoiDraftBoxes(null);
     onClose();
   };
 
@@ -521,6 +535,22 @@ export function VisualParsingDialog({
 
   const canGoBack = pageIndex > 0;
   const canGoNext = pageIndex < wizardPages.length - 1;
+  const canInteract = !loading && !navigationBusy;
+
+  const handleNext = async () => {
+    if (!canGoNext || !canInteract) {
+      return;
+    }
+    if (currentPage === "roi" && roiDraftBoxes && roiDraftBoxes.length > 0) {
+      setNavigationBusy(true);
+      try {
+        await onApplyRoiBoxes(roiDraftBoxes);
+      } finally {
+        setNavigationBusy(false);
+      }
+    }
+    setPageIndex((value) => Math.min(wizardPages.length - 1, value + 1));
+  };
 
   return (
     <div className="modal-backdrop" role="presentation">
@@ -589,6 +619,7 @@ export function VisualParsingDialog({
                 baseImageDataUrl={roiStep.baseImageDataUrl}
                 initialRoiBoxes={roiStep.roiBoxes ?? []}
                 onApplyRoiBoxes={onApplyRoiBoxes}
+                onDraftRoiBoxesChange={setRoiDraftBoxes}
               />
             ) : (
               <p className="subtle-text">ROI step is not available for this image.</p>
@@ -610,19 +641,20 @@ export function VisualParsingDialog({
         </div>
 
         <div className="wizard-nav">
-          <button disabled={!canGoBack} onClick={() => setPageIndex((value) => Math.max(0, value - 1))}>
+          <button
+            disabled={!canGoBack || !canInteract}
+            onClick={() => setPageIndex((value) => Math.max(0, value - 1))}
+          >
             Back
           </button>
           {canGoNext ? (
-            <button
-              onClick={() =>
-                setPageIndex((value) => Math.min(wizardPages.length - 1, value + 1))
-              }
-            >
-              Next
+            <button disabled={!canInteract} onClick={() => void handleNext()}>
+              {navigationBusy ? "Applying..." : "Next"}
             </button>
           ) : (
-            <button onClick={handleClose}>Done</button>
+            <button disabled={!canInteract} onClick={handleClose}>
+              Done
+            </button>
           )}
         </div>
       </section>
