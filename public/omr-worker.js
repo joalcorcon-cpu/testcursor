@@ -97,9 +97,42 @@ const pickSelections = (scores, minMarkThreshold = 0.18, ambiguityGap = 0.03) =>
   };
 };
 
-const detectCornerPoint = (cv, thresholded, marker, customSearchRegion) => {
+const detectCornerPoint = (cv, gray, thresholded, marker, customSearchRegion, otsuThreshold) => {
   const searchRegion = customSearchRegion ?? expandMarkerRegion(marker, 4);
   const rect = normalizeRegion(searchRegion, thresholded.cols, thresholded.rows);
+  if (customSearchRegion) {
+    const roiGray = gray.roi(rect);
+    let count = 0;
+    let sumX = 0;
+    let sumY = 0;
+    try {
+      for (let y = 0; y < rect.height; y += 1) {
+        for (let x = 0; x < rect.width; x += 1) {
+          const pixel = roiGray.ucharPtr(y, x)[0];
+          if (pixel <= otsuThreshold) {
+            count += 1;
+            sumX += x;
+            sumY += y;
+          }
+        }
+      }
+    } finally {
+      roiGray.delete();
+    }
+    if (count < rect.width * rect.height * 0.01) {
+      return {
+        x: NaN,
+        y: NaN,
+        found: false
+      };
+    }
+    return {
+      x: rect.x + sumX / count,
+      y: rect.y + sumY / count,
+      found: true
+    };
+  }
+
   const roi = thresholded.roi(rect);
   const expectedX = (marker.x + marker.w / 2) * thresholded.cols - rect.x;
   const expectedY = (marker.y + marker.h / 2) * thresholded.rows - rect.y;
@@ -169,13 +202,6 @@ const detectCornerPoint = (cv, thresholded, marker, customSearchRegion) => {
   roi.delete();
 
   if (count < rect.width * rect.height * 0.01) {
-    if (customSearchRegion) {
-      return {
-        x: NaN,
-        y: NaN,
-        found: false
-      };
-    }
     return {
       x: rect.x + rect.width / 2,
       y: rect.y + rect.height / 2,
@@ -314,15 +340,15 @@ const makeThresholdedSheet = (cv, imageRgbaBuffer, width, height) => {
 
   cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
   cv.GaussianBlur(gray, blurred, new cv.Size(3, 3), 0, 0);
-  cv.threshold(blurred, binary, 0, 255, cv.THRESH_BINARY_INV | cv.THRESH_OTSU);
+  const otsuThreshold = cv.threshold(blurred, binary, 0, 255, cv.THRESH_BINARY_INV | cv.THRESH_OTSU);
 
   src.delete();
   blurred.delete();
 
-  return { gray, binary };
+  return { gray, binary, otsuThreshold };
 };
 
-const resolveSheetCorners = (cv, gray, thresholded, template) => {
+const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => {
   const orderedMarkers = [
     template.cornerMarkers.find((marker) => marker.id === "tl"),
     template.cornerMarkers.find((marker) => marker.id === "tr"),
@@ -340,7 +366,14 @@ const resolveSheetCorners = (cv, gray, thresholded, template) => {
     if (snapshotMatch?.found) {
       return { x: snapshotMatch.x, y: snapshotMatch.y, found: true };
     }
-    return detectCornerPoint(cv, thresholded, marker, template.cornerSearchWindows?.[marker.id]);
+    return detectCornerPoint(
+      cv,
+      gray,
+      thresholded,
+      marker,
+      template.cornerSearchWindows?.[marker.id],
+      otsuThreshold
+    );
   });
   const foundCount = cornerDetections.filter((corner) => corner.found).length;
   if (foundCount < 4) {
@@ -371,8 +404,8 @@ const resolveSheetCorners = (cv, gray, thresholded, template) => {
   return { valid: true, corners };
 };
 
-const rectifySheet = (cv, gray, thresholded, template) => {
-  const cornerResolution = resolveSheetCorners(cv, gray, thresholded, template);
+const rectifySheet = (cv, gray, thresholded, template, otsuThreshold) => {
+  const cornerResolution = resolveSheetCorners(cv, gray, thresholded, template, otsuThreshold);
   if (!cornerResolution.valid) {
     return { thresholded, warped: false };
   }
@@ -431,9 +464,9 @@ const buildRectifiedPreview = async ({ requestId, imageRgbaBuffer, width, height
   currentStageByRequest.set(requestId, "Preparing rectified preview...");
   const cv = await loadOpenCv();
 
-  const { gray, binary } = makeThresholdedSheet(cv, imageRgbaBuffer, width, height);
+  const { gray, binary, otsuThreshold } = makeThresholdedSheet(cv, imageRgbaBuffer, width, height);
   try {
-    const cornerResolution = resolveSheetCorners(cv, gray, binary, template);
+    const cornerResolution = resolveSheetCorners(cv, gray, binary, template, otsuThreshold);
     if (!cornerResolution.valid) {
       const fallbackCopy = imageRgbaBuffer.slice(0);
       return {
@@ -527,10 +560,10 @@ const runScan = async ({ requestId, imageRgbaBuffer, width, height, template }) 
   workerLog("OpenCV runtime ready");
 
   postProgress(requestId, "Preprocessing image...");
-  const { gray, binary } = makeThresholdedSheet(cv, imageRgbaBuffer, width, height);
+  const { gray, binary, otsuThreshold } = makeThresholdedSheet(cv, imageRgbaBuffer, width, height);
 
   postProgress(requestId, "Aligning sheet...");
-  const rectified = rectifySheet(cv, gray, binary, template);
+  const rectified = rectifySheet(cv, gray, binary, template, otsuThreshold);
   gray.delete();
 
   const thresholded = rectified.thresholded;
