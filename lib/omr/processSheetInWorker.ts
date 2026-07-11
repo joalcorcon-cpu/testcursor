@@ -23,6 +23,13 @@ let sharedWorker: Worker | null = null;
 let workerReadyPromise: Promise<void> | null = null;
 let requestSeq = 1;
 const pendingScans = new Map<number, PendingScan>();
+const logWorkerDebug = (message: string, details?: unknown) => {
+  if (details === undefined) {
+    console.info(`[OMR Worker] ${message}`);
+    return;
+  }
+  console.info(`[OMR Worker] ${message}`, details);
+};
 
 const teardownWorker = (error?: Error) => {
   if (sharedWorker) {
@@ -32,6 +39,7 @@ const teardownWorker = (error?: Error) => {
   workerReadyPromise = null;
 
   if (pendingScans.size > 0) {
+    logWorkerDebug("Tearing down worker with pending scans", { pending: pendingScans.size });
     for (const [requestId, pending] of pendingScans.entries()) {
       window.clearTimeout(pending.timeoutId);
       if (pending.signal && pending.abortHandler) {
@@ -49,8 +57,9 @@ const ensureWorkerReady = async (): Promise<Worker> => {
     return sharedWorker;
   }
 
-  const worker = new Worker("/omr-worker.js");
+  const worker = new Worker("/omr-worker.js", { type: "module" });
   sharedWorker = worker;
+  logWorkerDebug("Created module worker");
 
   workerReadyPromise = new Promise<void>((resolve, reject) => {
     const initTimeoutId = window.setTimeout(() => {
@@ -66,12 +75,14 @@ const ensureWorkerReady = async (): Promise<Worker> => {
       }
 
       if (payload.type === "ready") {
+        logWorkerDebug("Worker runtime ready");
         window.clearTimeout(initTimeoutId);
         resolve();
         return;
       }
 
       if (payload.type === "init-error") {
+        logWorkerDebug("Worker init-error", payload.message);
         window.clearTimeout(initTimeoutId);
         const initError = new Error(payload.message);
         teardownWorker(initError);
@@ -85,6 +96,7 @@ const ensureWorkerReady = async (): Promise<Worker> => {
       }
 
       if (payload.type === "progress") {
+        logWorkerDebug(`Scan #${payload.requestId} stage`, payload.stage);
         pending.lastStage = payload.stage;
         pending.onProgress?.(payload.stage);
         return;
@@ -97,18 +109,25 @@ const ensureWorkerReady = async (): Promise<Worker> => {
       pendingScans.delete(payload.requestId);
 
       if (payload.type === "result") {
+        logWorkerDebug(`Scan #${payload.requestId} completed`);
         pending.resolve(payload.result);
         return;
       }
 
       const stagePrefix = payload.stage ? `[${payload.stage}] ` : "";
       const stackSuffix = payload.stack ? ` (${payload.stack})` : "";
+      logWorkerDebug(`Scan #${payload.requestId} failed`, {
+        stage: payload.stage,
+        message: payload.message,
+        stack: payload.stack
+      });
       pending.reject(new Error(`${stagePrefix}${payload.message}${stackSuffix}`));
     };
 
     worker.onerror = (event) => {
       window.clearTimeout(initTimeoutId);
       const location = `${event.filename ?? "worker"}:${event.lineno ?? "?"}:${event.colno ?? "?"}`;
+      logWorkerDebug("Worker crashed", { location, message: event.message });
       const error = new Error(
         `Worker crashed while processing the scan (${location}): ${event.message}`
       );
@@ -118,6 +137,7 @@ const ensureWorkerReady = async (): Promise<Worker> => {
 
     worker.onmessageerror = () => {
       window.clearTimeout(initTimeoutId);
+      logWorkerDebug("Worker message deserialization failed");
       const error = new Error("Worker message deserialization failed.");
       teardownWorker(error);
       reject(error);
@@ -125,6 +145,7 @@ const ensureWorkerReady = async (): Promise<Worker> => {
   });
 
   worker.postMessage({ type: "init" });
+  logWorkerDebug("Posted init request");
   await workerReadyPromise;
   return worker;
 };
@@ -148,6 +169,7 @@ export const processSheetFileInWorker = async (
   const worker = await ensureWorkerReady();
   const requestId = requestSeq;
   requestSeq += 1;
+  logWorkerDebug(`Dispatching scan #${requestId}`, { width, height });
 
   return await new Promise<OMRResultJson>((resolve, reject) => {
     const timeoutId = window.setTimeout(() => {

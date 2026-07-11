@@ -1,71 +1,42 @@
-const OPENCV_SCRIPT_URL = "/opencv.js";
+import cvFactory from "/opencv-worker-runtime.js";
+
 const OPENCV_READY_TIMEOUT_MS = 180000;
 const MAX_RGBA_BYTES = 25 * 1024 * 1024;
 
 let cvReadyPromise = null;
-let cvReady = false;
 let lastInitError = "";
 const currentStageByRequest = new Map();
-
-const isCvReady = () =>
-  Boolean(
-    self.cv &&
-      typeof self.cv.Mat === "function" &&
-      typeof self.cv.threshold === "function" &&
-      typeof self.cv.cvtColor === "function"
-  );
+const workerLog = (message, details) => {
+  if (details === undefined) {
+    console.info(`[OMR WorkerThread] ${message}`);
+    return;
+  }
+  console.info(`[OMR WorkerThread] ${message}`, details);
+};
 
 const loadOpenCv = async () => {
   if (cvReadyPromise) {
     return cvReadyPromise;
   }
 
-  cvReadyPromise = new Promise((resolve, reject) => {
-    const startedAt = Date.now();
-    const rejectTimeout = () => {
-      const suffix = lastInitError ? ` Last error: ${lastInitError}` : "";
-      reject(new Error(`OpenCV runtime initialization timed out in worker.${suffix}`));
-    };
-
-    const pollReady = () => {
-      if (cvReady || isCvReady()) {
-        resolve(self.cv);
-        return;
+  workerLog("Initializing OpenCV runtime");
+  cvReadyPromise = Promise.race([
+    cvFactory({
+      printErr: (...args) => {
+        lastInitError = args
+          .map((value) => (typeof value === "string" ? value : String(value)))
+          .join(" ");
       }
-      if (Date.now() - startedAt > OPENCV_READY_TIMEOUT_MS) {
-        rejectTimeout();
-        return;
-      }
-      setTimeout(pollReady, 100);
-    };
-
-    const moduleConfig = self.cv && typeof self.cv === "object" ? self.cv : {};
-    moduleConfig.locateFile = (path) => `/${path}`;
-    moduleConfig.onRuntimeInitialized = () => {
-      cvReady = true;
-    };
-    moduleConfig.printErr = (...args) => {
-      lastInitError = args
-        .map((value) => (typeof value === "string" ? value : String(value)))
-        .join(" ");
-    };
-    self.cv = moduleConfig;
-
-    try {
-      importScripts(OPENCV_SCRIPT_URL);
-    } catch (error) {
-      reject(new Error("Unable to load OpenCV.js in worker."));
-      return;
-    }
-
-    if (cvReady || isCvReady()) {
-      resolve(self.cv);
-      return;
-    }
-    pollReady();
-  }).catch((error) => {
+    }),
+    new Promise((_, reject) => {
+      setTimeout(() => {
+        const suffix = lastInitError ? ` Last error: ${lastInitError}` : "";
+        reject(new Error(`OpenCV runtime initialization timed out in worker.${suffix}`));
+      }, OPENCV_READY_TIMEOUT_MS);
+    })
+  ]).catch((error) => {
+    workerLog("OpenCV init failed", error instanceof Error ? error.message : String(error));
     cvReadyPromise = null;
-    cvReady = false;
     throw error;
   });
 
@@ -275,6 +246,7 @@ const runScan = async ({ requestId, imageRgbaBuffer, width, height, template }) 
 
   postProgress(requestId, "Loading OpenCV runtime...");
   const cv = await loadOpenCv();
+  workerLog("OpenCV runtime ready");
 
   postProgress(requestId, "Preprocessing image...");
   const { gray, binary } = makeThresholdedSheet(cv, imageRgbaBuffer, width, height);
@@ -350,6 +322,7 @@ self.onmessage = async (event) => {
 
   const requestId = data.requestId;
   currentStageByRequest.set(requestId, "worker-start");
+  workerLog("Received scan request", { requestId, width: data.width, height: data.height });
   try {
     const result = await runScan(data);
     self.postMessage({ type: "result", requestId, result });
