@@ -562,20 +562,40 @@ export const buildVisualParsingSteps = async (
       }
     };
 
-    const drawOuter = (label: string, region: BubbleRegion) => {
+    const drawOuter = (label: string, region: BubbleRegion, color: string) => {
       const rect = normalizeRect(region, rectified.image.width, rectified.image.height);
-      ctx.strokeStyle = "#00ff95";
-      ctx.lineWidth = 2.5;
+      // Draw a dark under-stroke first to keep ROI edges visible over dense bubbles.
+      ctx.strokeStyle = "rgba(0,0,0,0.75)";
+      ctx.lineWidth = 5;
       ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-      ctx.fillStyle = "#00ff95";
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.fillStyle = color;
       ctx.font = "12px Arial";
-      ctx.fillText(label, rect.x + 4, rect.y - 6);
+      ctx.fillText(label, rect.x + 5, rect.y - 8);
+      const corners: Array<[number, number]> = [
+        [rect.x, rect.y],
+        [rect.x + rect.w, rect.y],
+        [rect.x + rect.w, rect.y + rect.h],
+        [rect.x, rect.y + rect.h]
+      ];
+      for (const [x, y] of corners) {
+        ctx.beginPath();
+        ctx.fillStyle = "rgba(0,0,0,0.8)";
+        ctx.arc(x, y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.fillStyle = color;
+        ctx.arc(x, y, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
     };
 
     const drawGrid = (region: BubbleRegion, cols: number, rows: number) => {
       const rect = normalizeRect(region, rectified.image.width, rectified.image.height);
-      ctx.strokeStyle = "rgba(0,255,149,0.25)";
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(0,255,149,0.55)";
+      ctx.lineWidth = 1.2;
       for (let col = 1; col < cols; col += 1) {
         const x = rect.x + (rect.w * col) / cols;
         ctx.beginPath();
@@ -592,9 +612,23 @@ export const buildVisualParsingSteps = async (
       }
     };
 
-    for (const box of roiBoxes) {
-      drawOuter(box.id, { x: box.x, y: box.y, w: box.w, h: box.h });
-    }
+    const roiColorMap: Record<string, string> = {
+      studentId: "#55d6ff",
+      examCode: "#ff9f43",
+      examSet: "#7bed9f",
+      answersCol1: "#ff6b81",
+      answersCol2: "#ffa502",
+      answersCol3: "#70a1ff"
+    };
+    const roiLabelMap: Record<string, string> = {
+      studentId: "Student ID",
+      examCode: "Exam Code",
+      examSet: "Exam Set",
+      answersCol1: "Answers 1-35",
+      answersCol2: "Answers 36-70",
+      answersCol3: "Answers 71-100"
+    };
+
     const roiById = new Map(roiBoxes.map((box) => [box.id, box]));
     const studentIdBox = roiById.get("studentId");
     if (studentIdBox) {
@@ -645,6 +679,14 @@ export const buildVisualParsingSteps = async (
         ctx.font = "10px Arial";
         ctx.fillText(`${answer.question}`, Math.max(2, labelRect.x - 14), labelRect.y + 10);
       }
+    }
+
+    for (const box of roiBoxes) {
+      drawOuter(
+        roiLabelMap[box.id] ?? box.id,
+        { x: box.x, y: box.y, w: box.w, h: box.h },
+        roiColorMap[box.id] ?? "#00ff95"
+      );
     }
   });
 
@@ -706,7 +748,7 @@ export const buildVisualParsingSteps = async (
       id: "read-areas",
       title: "Step 5: Detailed OMR read areas",
       description:
-        "Detailed bubble-by-bubble map of every area used during OMR scoring. Green boxes indicate darker detected marks.",
+        "Detailed bubble-by-bubble map of every area used during OMR scoring. Colored ROI outlines mirror the Page 4 boxes; green bubble highlights indicate darker detected marks.",
       imageDataUrl: readAreasOverlayUrl
     }
   ];
