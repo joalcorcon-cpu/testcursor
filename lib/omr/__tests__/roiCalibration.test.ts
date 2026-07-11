@@ -26,3 +26,25 @@ test("applyRoiBoxesToTemplate keeps fixed row/column structures", () => {
   assert.ok(answer1.choices.C.x < answer1.choices.D.x);
   assert.ok(answer2.choices.A.y > answer1.choices.A.y);
 });
+
+test("deriveRoiBoxesFromTemplate returns persisted calibration boxes", () => {
+  const sourceBoxes = deriveRoiBoxesFromTemplate(defaultSheetTemplate);
+  const adjustedBoxes = sourceBoxes.map((box) => ({
+    ...box,
+    x: box.x + 0.0123,
+    y: box.y + 0.0044,
+    w: box.w - 0.0031,
+    h: box.h - 0.0022
+  }));
+
+  const calibrated = applyRoiBoxesToTemplate(defaultSheetTemplate, adjustedBoxes);
+  const derived = deriveRoiBoxesFromTemplate(calibrated);
+
+  for (let i = 0; i < adjustedBoxes.length; i += 1) {
+    assert.equal(derived[i].id, adjustedBoxes[i].id);
+    assert.equal(derived[i].x, adjustedBoxes[i].x);
+    assert.equal(derived[i].y, adjustedBoxes[i].y);
+    assert.equal(derived[i].w, adjustedBoxes[i].w);
+    assert.equal(derived[i].h, adjustedBoxes[i].h);
+  }
+});
