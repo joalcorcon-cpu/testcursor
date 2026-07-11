@@ -516,21 +516,13 @@ export const buildVisualParsingSteps = async (
       ctx.font = "16px Arial";
       ctx.fillText(label, rect.x + 6, rect.y + 18);
     };
-    const roiColorMap: Record<string, string> = {
-      studentId: "#55d6ff",
-      examCode: "#ff9f43",
-      examSet: "#7bed9f",
-      answersCol1: "#ff6b81",
-      answersCol2: "#ffa502",
-      answersCol3: "#70a1ff"
-    };
     const roiLabelMap: Record<string, string> = {
-      studentId: "Student ID",
-      examCode: "Exam Code",
-      examSet: "Exam Set",
-      answersCol1: "Answers 1-35",
-      answersCol2: "Answers 36-70",
-      answersCol3: "Answers 71-100"
+      studentId: "ID",
+      examCode: "CODE",
+      examSet: "SET",
+      answersCol1: "A1",
+      answersCol2: "A2",
+      answersCol3: "A3"
     };
     for (const box of roiBoxes) {
       drawLabel(
@@ -685,7 +677,7 @@ export const buildVisualParsingSteps = async (
       drawOuter(
         roiLabelMap[box.id] ?? box.id,
         { x: box.x, y: box.y, w: box.w, h: box.h },
-        roiColorMap[box.id] ?? "#00ff95"
+        "#00ff95"
       );
     }
   });
@@ -748,7 +740,7 @@ export const buildVisualParsingSteps = async (
       id: "read-areas",
       title: "Step 5: Detailed OMR read areas",
       description:
-        "Detailed bubble-by-bubble map of every area used during OMR scoring. Colored ROI outlines mirror the Page 4 boxes; green bubble highlights indicate darker detected marks.",
+        "Detailed bubble-by-bubble map of every area used during OMR scoring. ROI outlines and labels mirror the Step 4 draggable boxes; green bubble highlights indicate darker detected marks.",
       imageDataUrl: readAreasOverlayUrl
     }
   ];
