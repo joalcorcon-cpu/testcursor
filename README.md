@@ -66,7 +66,8 @@ No raw image blobs are stored in Supabase by default.
 ## Review and correction flow
 
 - Upload and run scan on the home page.
-- Use **Open Visual Parse Steps** to inspect step-by-step parsing visuals (normalized image, grayscale, threshold map, and ROI overlays).
+- Use **Open Visual Parse Steps** to inspect step-by-step parsing visuals (normalized image, grayscale, threshold map, corner detection, and ROI overlays).
+- In the visual dialog, corner search windows are draggable; apply them to update corner marker boxes used for scan alignment.
 - Apply manual corrections before save:
   - student ID digits
   - exam code digits

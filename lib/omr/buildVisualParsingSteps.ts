@@ -1,11 +1,24 @@
 import { prepareImageForScan } from "@/lib/omr/prepareImageForScan";
 import type { BubbleRegion, CornerMarker, OMRTemplate } from "@/types/omr";
 
+export interface CornerWindowVisual {
+  id: CornerMarker["id"];
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  detectedX: number;
+  detectedY: number;
+  usedFallback: boolean;
+}
+
 export interface VisualParseStep {
   id: string;
   title: string;
   description: string;
   imageDataUrl: string;
+  baseImageDataUrl?: string;
+  cornerWindows?: CornerWindowVisual[];
 }
 
 const toCanvas = (width: number, height: number): HTMLCanvasElement => {
@@ -212,9 +225,20 @@ export const buildVisualParsingSteps = async (
     normalizedImage.width,
     normalizedImage.height
   );
+  const normalizedImageDataUrl = toDataUrl(normalizedImage);
   const cornerDetections = template.cornerMarkers.map((marker) =>
     detectCornerCentroid(thresholdMask, normalizedImage.width, normalizedImage.height, marker)
   );
+  const cornerWindows: CornerWindowVisual[] = cornerDetections.map((detection, index) => ({
+    id: template.cornerMarkers[index].id,
+    x: detection.searchRect.x / normalizedImage.width,
+    y: detection.searchRect.y / normalizedImage.height,
+    w: detection.searchRect.w / normalizedImage.width,
+    h: detection.searchRect.h / normalizedImage.height,
+    detectedX: detection.point.x / normalizedImage.width,
+    detectedY: detection.point.y / normalizedImage.height,
+    usedFallback: detection.usedFallback
+  }));
 
   onStage?.("Drawing region overlays...");
   const studentBounds = regionBounds(flattenRegions(template.studentId.columns));
@@ -279,7 +303,7 @@ export const buildVisualParsingSteps = async (
       title: "Step 1: Normalized image",
       description:
         "Uploaded image normalized to scanner resolution for consistent parsing.",
-      imageDataUrl: toDataUrl(normalizedImage)
+      imageDataUrl: normalizedImageDataUrl
     },
     {
       id: "grayscale",
@@ -299,7 +323,9 @@ export const buildVisualParsingSteps = async (
       title: "Step 4: Corner marker detection",
       description:
         "Green boxes are expanded search windows. Dots are detected marker centers (orange means fallback center).",
-      imageDataUrl: cornerOverlayUrl
+      imageDataUrl: cornerOverlayUrl,
+      baseImageDataUrl: normalizedImageDataUrl,
+      cornerWindows
     },
     {
       id: "regions",

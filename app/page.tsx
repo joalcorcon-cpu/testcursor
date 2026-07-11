@@ -5,15 +5,19 @@ import { ScanUploader } from "@/components/ScanUploader";
 import { ResultsReview } from "@/components/ResultsReview";
 import { VisualParsingDialog } from "@/components/VisualParsingDialog";
 import {
+  type CornerWindowVisual,
   buildVisualParsingSteps,
   type VisualParseStep
 } from "@/lib/omr/buildVisualParsingSteps";
 import { processSheetFileInWorker, warmupOmrWorker } from "@/lib/omr/processSheetInWorker";
 import { prepareImageForScan } from "@/lib/omr/prepareImageForScan";
 import { defaultSheetTemplate } from "@/lib/templates/defaultSheetTemplate";
-import type { OMRResultJson, ScanRecord } from "@/types/omr";
+import type { OMRResultJson, OMRTemplate, ScanRecord } from "@/types/omr";
 
 export default function HomePage() {
+  const [activeTemplate, setActiveTemplate] = useState<OMRTemplate>(() =>
+    JSON.parse(JSON.stringify(defaultSheetTemplate))
+  );
   const [file, setFile] = useState<File | null>(null);
   const [sourceName, setSourceName] = useState("");
   const [uploader, setUploader] = useState("");
@@ -75,7 +79,7 @@ export default function HomePage() {
         workerBuffer,
         prepared.width,
         prepared.height,
-        defaultSheetTemplate,
+        activeTemplate,
         (stage) => setScanStage(stage),
         controller.signal
       );
@@ -138,7 +142,7 @@ export default function HomePage() {
     try {
       const steps = await buildVisualParsingSteps(
         file,
-        defaultSheetTemplate,
+        activeTemplate,
         (stage) => setVisualDialogStage(stage)
       );
       setVisualSteps(steps);
@@ -152,6 +156,41 @@ export default function HomePage() {
       setVisualDialogLoading(false);
       setVisualDialogStage(null);
     }
+  };
+
+  const applyCornerWindows = (windows: CornerWindowVisual[]) => {
+    setActiveTemplate((current) => {
+      const nextCornerMarkers = current.cornerMarkers.map((marker) => {
+        const cornerWindow = windows.find((window) => window.id === marker.id);
+        if (!cornerWindow) {
+          return marker;
+        }
+
+        const nextWidth = Math.max(0.004, cornerWindow.w / 4);
+        const nextHeight = Math.max(0.004, cornerWindow.h / 4);
+        const centerX = cornerWindow.x + cornerWindow.w / 2;
+        const centerY = cornerWindow.y + cornerWindow.h / 2;
+
+        const nextX = Math.min(1 - nextWidth, Math.max(0, centerX - nextWidth / 2));
+        const nextY = Math.min(1 - nextHeight, Math.max(0, centerY - nextHeight / 2));
+
+        return {
+          ...marker,
+          x: nextX,
+          y: nextY,
+          w: nextWidth,
+          h: nextHeight
+        };
+      });
+
+      return {
+        ...current,
+        cornerMarkers: nextCornerMarkers
+      };
+    });
+    setVisualSteps((current) =>
+      current.map((step) => (step.id === "corners" ? { ...step, cornerWindows: windows } : step))
+    );
   };
 
   return (
@@ -192,6 +231,7 @@ export default function HomePage() {
         stage={visualDialogStage}
         error={visualDialogError}
         steps={visualSteps}
+        onApplyCornerWindows={applyCornerWindows}
         onClose={() => setVisualDialogOpen(false)}
       />
     </main>
