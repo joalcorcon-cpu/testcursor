@@ -269,7 +269,7 @@ export default function HomePage() {
     );
   };
 
-  const applyRoiBoxes = (boxes: RoiBoxVisual[]) => {
+  const applyRoiBoxes = async (boxes: RoiBoxVisual[]) => {
     const nextTemplate = applyRoiBoxesToTemplate(activeTemplateRef.current, boxes);
     setActiveTemplate(nextTemplate);
     setVisualDialogError(null);
@@ -278,7 +278,7 @@ export default function HomePage() {
     );
     setCalibrationMessage("ROI boxes applied. Next scan will use these extraction regions.");
     setVisualDialogStage("ROI boxes applied. Next scan will use these extraction regions.");
-    void rebuildVisualStepsForTemplate(nextTemplate, "Refreshing ROI preview...");
+    await rebuildVisualStepsForTemplate(nextTemplate, "Refreshing ROI preview...");
   };
 
   return (
