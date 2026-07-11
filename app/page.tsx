@@ -3,6 +3,11 @@
 import { useEffect, useState } from "react";
 import { ScanUploader } from "@/components/ScanUploader";
 import { ResultsReview } from "@/components/ResultsReview";
+import { VisualParsingDialog } from "@/components/VisualParsingDialog";
+import {
+  buildVisualParsingSteps,
+  type VisualParseStep
+} from "@/lib/omr/buildVisualParsingSteps";
 import { processSheetFileInWorker, warmupOmrWorker } from "@/lib/omr/processSheetInWorker";
 import { prepareImageForScan } from "@/lib/omr/prepareImageForScan";
 import { defaultSheetTemplate } from "@/lib/templates/defaultSheetTemplate";
@@ -18,6 +23,11 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<OMRResultJson | null>(null);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const [visualDialogOpen, setVisualDialogOpen] = useState(false);
+  const [visualDialogLoading, setVisualDialogLoading] = useState(false);
+  const [visualDialogStage, setVisualDialogStage] = useState<string | null>(null);
+  const [visualDialogError, setVisualDialogError] = useState<string | null>(null);
+  const [visualSteps, setVisualSteps] = useState<VisualParseStep[]>([]);
   const [savedScans, setSavedScans] = useState<ScanRecord[]>([]);
   const [filters, setFilters] = useState({
     sourceName: "",
@@ -116,6 +126,34 @@ export default function HomePage() {
     }
   };
 
+  const openVisualDialog = async () => {
+    if (!file) {
+      setError("Choose an answer sheet image first.");
+      return;
+    }
+    setVisualDialogOpen(true);
+    setVisualDialogLoading(true);
+    setVisualDialogError(null);
+    setVisualDialogStage("Preparing visual parsing steps...");
+    try {
+      const steps = await buildVisualParsingSteps(
+        file,
+        defaultSheetTemplate,
+        (stage) => setVisualDialogStage(stage)
+      );
+      setVisualSteps(steps);
+    } catch (dialogError) {
+      setVisualDialogError(
+        dialogError instanceof Error
+          ? dialogError.message
+          : "Unable to generate visual parsing steps."
+      );
+    } finally {
+      setVisualDialogLoading(false);
+      setVisualDialogStage(null);
+    }
+  };
+
   return (
     <main className="main">
       <h1>OMR Answer Sheet Scanner</h1>
@@ -127,12 +165,14 @@ export default function HomePage() {
           sourceName={sourceName}
           uploader={uploader}
           loading={loading}
+          hasFile={Boolean(file)}
           stage={scanStage}
           onSourceNameChange={setSourceName}
           onUploaderChange={setUploader}
           onFileChange={setFile}
           onRunScan={runScan}
           onCancelScan={cancelScan}
+          onOpenVisualDialog={openVisualDialog}
         />
         <ResultsReview
           result={result}
@@ -146,6 +186,14 @@ export default function HomePage() {
           onRefreshScans={refreshScans}
         />
       </div>
+      <VisualParsingDialog
+        isOpen={visualDialogOpen}
+        loading={visualDialogLoading}
+        stage={visualDialogStage}
+        error={visualDialogError}
+        steps={visualSteps}
+        onClose={() => setVisualDialogOpen(false)}
+      />
     </main>
   );
 }

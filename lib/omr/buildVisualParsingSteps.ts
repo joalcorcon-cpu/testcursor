@@ -1,0 +1,243 @@
+import { prepareImageForScan } from "@/lib/omr/prepareImageForScan";
+import type { BubbleRegion, OMRTemplate } from "@/types/omr";
+
+export interface VisualParseStep {
+  id: string;
+  title: string;
+  description: string;
+  imageDataUrl: string;
+}
+
+const toCanvas = (width: number, height: number): HTMLCanvasElement => {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  return canvas;
+};
+
+const imageDataFromRgba = (rgbaBuffer: ArrayBuffer, width: number, height: number) =>
+  new ImageData(new Uint8ClampedArray(rgbaBuffer), width, height);
+
+const toDataUrl = (imageData: ImageData): string => {
+  const canvas = toCanvas(imageData.width, imageData.height);
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Unable to render parse step image.");
+  }
+  context.putImageData(imageData, 0, 0);
+  return canvas.toDataURL("image/png");
+};
+
+const drawDataUrl = (baseImage: ImageData, draw: (ctx: CanvasRenderingContext2D) => void) => {
+  const canvas = toCanvas(baseImage.width, baseImage.height);
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Unable to render parse overlay.");
+  }
+  context.putImageData(baseImage, 0, 0);
+  draw(context);
+  return canvas.toDataURL("image/png");
+};
+
+const normalizeRect = (region: BubbleRegion, width: number, height: number) => ({
+  x: Math.round(region.x * width),
+  y: Math.round(region.y * height),
+  w: Math.max(1, Math.round(region.w * width)),
+  h: Math.max(1, Math.round(region.h * height))
+});
+
+const flattenRegions = (groups: BubbleRegion[][]): BubbleRegion[] =>
+  groups.flatMap((group) => group);
+
+const regionBounds = (regions: BubbleRegion[]): BubbleRegion => {
+  const left = Math.min(...regions.map((region) => region.x));
+  const top = Math.min(...regions.map((region) => region.y));
+  const right = Math.max(...regions.map((region) => region.x + region.w));
+  const bottom = Math.max(...regions.map((region) => region.y + region.h));
+  return { x: left, y: top, w: right - left, h: bottom - top };
+};
+
+const grayscaleFromRgba = (rgba: Uint8ClampedArray): Uint8ClampedArray => {
+  const grayscale = new Uint8ClampedArray(rgba.length / 4);
+  for (let index = 0; index < rgba.length; index += 4) {
+    const gray = Math.round(
+      rgba[index] * 0.299 + rgba[index + 1] * 0.587 + rgba[index + 2] * 0.114
+    );
+    grayscale[index / 4] = gray;
+  }
+  return grayscale;
+};
+
+const otsuThreshold = (grayscale: Uint8ClampedArray): number => {
+  const histogram = new Array<number>(256).fill(0);
+  for (const value of grayscale) {
+    histogram[value] += 1;
+  }
+
+  let sum = 0;
+  for (let index = 0; index < 256; index += 1) {
+    sum += index * histogram[index];
+  }
+
+  let sumBackground = 0;
+  let weightBackground = 0;
+  let maxVariance = -1;
+  let threshold = 127;
+  const total = grayscale.length;
+
+  for (let index = 0; index < 256; index += 1) {
+    weightBackground += histogram[index];
+    if (weightBackground === 0) continue;
+    const weightForeground = total - weightBackground;
+    if (weightForeground === 0) break;
+
+    sumBackground += index * histogram[index];
+    const meanBackground = sumBackground / weightBackground;
+    const meanForeground = (sum - sumBackground) / weightForeground;
+    const variance =
+      weightBackground * weightForeground * (meanBackground - meanForeground) ** 2;
+
+    if (variance > maxVariance) {
+      maxVariance = variance;
+      threshold = index;
+    }
+  }
+
+  return threshold;
+};
+
+export const buildVisualParsingSteps = async (
+  file: File,
+  template: OMRTemplate,
+  onStage?: (stage: string) => void
+): Promise<VisualParseStep[]> => {
+  onStage?.("Decoding and normalizing image...");
+  const prepared = await prepareImageForScan(file);
+  const normalizedImage = imageDataFromRgba(
+    prepared.rgbaBuffer,
+    prepared.width,
+    prepared.height
+  );
+
+  onStage?.("Building grayscale visualization...");
+  const grayscale = grayscaleFromRgba(normalizedImage.data);
+  const grayscaleRgba = new Uint8ClampedArray(normalizedImage.data.length);
+  for (let index = 0; index < grayscale.length; index += 1) {
+    const gray = grayscale[index];
+    const rgbaIndex = index * 4;
+    grayscaleRgba[rgbaIndex] = gray;
+    grayscaleRgba[rgbaIndex + 1] = gray;
+    grayscaleRgba[rgbaIndex + 2] = gray;
+    grayscaleRgba[rgbaIndex + 3] = 255;
+  }
+  const grayscaleImage = new ImageData(
+    grayscaleRgba,
+    normalizedImage.width,
+    normalizedImage.height
+  );
+
+  onStage?.("Computing threshold map...");
+  const threshold = otsuThreshold(grayscale);
+  const thresholdRgba = new Uint8ClampedArray(normalizedImage.data.length);
+  for (let index = 0; index < grayscale.length; index += 1) {
+    const rgbaIndex = index * 4;
+    const value = grayscale[index] <= threshold ? 255 : 0;
+    thresholdRgba[rgbaIndex] = value;
+    thresholdRgba[rgbaIndex + 1] = value;
+    thresholdRgba[rgbaIndex + 2] = value;
+    thresholdRgba[rgbaIndex + 3] = 255;
+  }
+  const thresholdImage = new ImageData(
+    thresholdRgba,
+    normalizedImage.width,
+    normalizedImage.height
+  );
+
+  onStage?.("Drawing region overlays...");
+  const studentBounds = regionBounds(flattenRegions(template.studentId.columns));
+  const examCodeBounds = regionBounds(flattenRegions(template.examCode.columns));
+  const examSetBounds = regionBounds(Object.values(template.examSet.choices));
+  const answersFirstColBounds = regionBounds(
+    template.answers
+      .filter((item) => item.question <= 35)
+      .flatMap((item) => Object.values(item.choices))
+  );
+  const answersSecondColBounds = regionBounds(
+    template.answers
+      .filter((item) => item.question >= 36 && item.question <= 70)
+      .flatMap((item) => Object.values(item.choices))
+  );
+  const answersThirdColBounds = regionBounds(
+    template.answers
+      .filter((item) => item.question >= 71)
+      .flatMap((item) => Object.values(item.choices))
+  );
+
+  const cornerOverlayUrl = drawDataUrl(normalizedImage, (ctx) => {
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#00ff95";
+    for (const marker of template.cornerMarkers) {
+      const rect = normalizeRect(marker, normalizedImage.width, normalizedImage.height);
+      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.fillStyle = "#00ff95";
+      ctx.fillRect(rect.x + rect.w / 2 - 2, rect.y + rect.h / 2 - 2, 4, 4);
+    }
+  });
+
+  const roiOverlayUrl = drawDataUrl(normalizedImage, (ctx) => {
+    const drawLabel = (label: string, region: BubbleRegion, color: string) => {
+      const rect = normalizeRect(region, normalizedImage.width, normalizedImage.height);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.fillStyle = color;
+      ctx.font = "16px Arial";
+      ctx.fillText(label, rect.x + 6, rect.y + 18);
+    };
+
+    drawLabel("Student ID", studentBounds, "#55d6ff");
+    drawLabel("Exam Code", examCodeBounds, "#ff9f43");
+    drawLabel("Exam Set", examSetBounds, "#7bed9f");
+    drawLabel("Answers 1-35", answersFirstColBounds, "#ff6b81");
+    drawLabel("Answers 36-70", answersSecondColBounds, "#ffa502");
+    drawLabel("Answers 71-100", answersThirdColBounds, "#70a1ff");
+  });
+
+  onStage?.("Compiling visual step list...");
+  return [
+    {
+      id: "normalized",
+      title: "Step 1: Normalized image",
+      description:
+        "Uploaded image normalized to scanner resolution for consistent parsing.",
+      imageDataUrl: toDataUrl(normalizedImage)
+    },
+    {
+      id: "grayscale",
+      title: "Step 2: Grayscale conversion",
+      description:
+        "Image converted to grayscale before thresholding to isolate bubble marks.",
+      imageDataUrl: toDataUrl(grayscaleImage)
+    },
+    {
+      id: "threshold",
+      title: "Step 3: Otsu threshold map",
+      description: `Binary thresholding (Otsu=${threshold}) highlights dark marks and printed bubbles.`,
+      imageDataUrl: toDataUrl(thresholdImage)
+    },
+    {
+      id: "corners",
+      title: "Step 4: Corner marker search windows",
+      description:
+        "Expected corner marker regions used to align sheet geometry before bubble scoring.",
+      imageDataUrl: cornerOverlayUrl
+    },
+    {
+      id: "regions",
+      title: "Step 5: Region-of-interest map",
+      description:
+        "Student ID, Exam Code, Exam Set, and 3 answer columns highlighted for extraction.",
+      imageDataUrl: roiOverlayUrl
+    }
+  ];
+};

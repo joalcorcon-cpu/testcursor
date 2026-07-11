@@ -4,24 +4,28 @@ interface ScanUploaderProps {
   sourceName: string;
   uploader: string;
   loading: boolean;
+  hasFile: boolean;
   stage: string | null;
   onSourceNameChange: (value: string) => void;
   onUploaderChange: (value: string) => void;
   onFileChange: (file: File | null) => void;
   onRunScan: () => Promise<void>;
   onCancelScan: () => void;
+  onOpenVisualDialog: () => Promise<void>;
 }
 
 export function ScanUploader({
   sourceName,
   uploader,
   loading,
+  hasFile,
   stage,
   onSourceNameChange,
   onUploaderChange,
   onFileChange,
   onRunScan,
-  onCancelScan
+  onCancelScan,
+  onOpenVisualDialog
 }: ScanUploaderProps) {
   return (
     <section className="card">
@@ -54,6 +58,9 @@ export function ScanUploader({
       <div className="actions">
         <button onClick={() => void onRunScan()} disabled={loading}>
           {loading ? "Scanning..." : "Run OMR Scan"}
+        </button>
+        <button onClick={() => void onOpenVisualDialog()} disabled={loading || !hasFile}>
+          Open Visual Parse Steps
         </button>
         {loading ? <button onClick={onCancelScan}>Cancel Scan</button> : null}
       </div>

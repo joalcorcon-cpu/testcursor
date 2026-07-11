@@ -66,6 +66,7 @@ No raw image blobs are stored in Supabase by default.
 ## Review and correction flow
 
 - Upload and run scan on the home page.
+- Use **Open Visual Parse Steps** to inspect step-by-step parsing visuals (normalized image, grayscale, threshold map, and ROI overlays).
 - Apply manual corrections before save:
   - student ID digits
   - exam code digits
