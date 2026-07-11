@@ -78,4 +78,5 @@ No raw image blobs are stored in Supabase by default.
 
 - Current version performs threshold-based bubble scoring and returns JSON marks/shades.
 - Corner-marker perspective correction is enabled using the four corner blocks from the template.
+- Large photos are downscaled before processing to keep browser scans responsive.
 - For production, tune region coordinates and thresholds using real scans from your printer/camera setup.

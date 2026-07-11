@@ -37,6 +37,7 @@ declare global {
         flags?: number,
         borderMode?: number
       ) => void;
+      countNonZero: (src: CvMat) => number;
       COLOR_RGBA2GRAY: number;
       ADAPTIVE_THRESH_GAUSSIAN_C: number;
       THRESH_BINARY_INV: number;

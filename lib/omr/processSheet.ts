@@ -10,6 +10,8 @@ import { loadOpenCv } from "@/lib/omr/opencvLoader";
 import type { CvMat } from "@/lib/omr/opencvLoader";
 import type { CornerMarker, OMRResultJson } from "@/types/omr";
 
+const MAX_PROCESSING_DIMENSION = 1800;
+
 const loadImageElement = (file: File) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
     const url = URL.createObjectURL(file);
@@ -136,14 +138,21 @@ const rectifyWithCornerMarkers = (
 const toThresholdedMat = async (file: File): Promise<PreprocessedSheet> => {
   const cv = await loadOpenCv();
   const image = await loadImageElement(file);
+  const longestSide = Math.max(image.naturalWidth, image.naturalHeight);
+  const scale =
+    longestSide > MAX_PROCESSING_DIMENSION
+      ? MAX_PROCESSING_DIMENSION / longestSide
+      : 1;
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
   const canvas = document.createElement("canvas");
-  canvas.width = image.naturalWidth;
-  canvas.height = image.naturalHeight;
+  canvas.width = width;
+  canvas.height = height;
   const ctx = canvas.getContext("2d");
   if (!ctx) {
     throw new Error("Unable to initialize canvas context.");
   }
-  ctx.drawImage(image, 0, 0);
+  ctx.drawImage(image, 0, 0, width, height);
 
   const src = cv.imread(canvas);
   const gray = new cv.Mat() as CvMat;
@@ -193,9 +202,17 @@ export const processSheetFile = async (file: File): Promise<OMRResultJson> => {
     const examCode = scoreDigitColumns(thresholded, defaultSheetTemplate.examCode.columns);
     const examSetScores = computeChoiceScores(thresholded, defaultSheetTemplate.examSet.choices);
     const examSetDecision = pickSelections(examSetScores);
-    const answers = defaultSheetTemplate.answers.map((item) =>
-      scoreAnswer(item.question, thresholded, item.choices)
-    );
+    const answers: OMRResultJson["answers"] = [];
+    for (let index = 0; index < defaultSheetTemplate.answers.length; index += 1) {
+      const item = defaultSheetTemplate.answers[index];
+      answers.push(scoreAnswer(item.question, thresholded, item.choices));
+      if (index > 0 && index % 20 === 0) {
+        // Yield to the browser periodically to avoid long main-thread stalls.
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, 0);
+        });
+      }
+    }
 
     return {
       templateId: defaultSheetTemplate.id,
