@@ -5,6 +5,7 @@ import { ScanUploader } from "@/components/ScanUploader";
 import { ResultsReview } from "@/components/ResultsReview";
 import { VisualParsingDialog } from "@/components/VisualParsingDialog";
 import {
+  buildRoiReadAreaStepsFromRectifiedDataUrl,
   type CornerWindowVisual,
   buildVisualParsingSteps,
   type VisualParseStep
@@ -273,11 +274,38 @@ export default function HomePage() {
     const nextTemplate = applyRoiBoxesToTemplate(activeTemplateRef.current, boxes);
     setActiveTemplate(nextTemplate);
     setVisualDialogError(null);
-    setVisualSteps((current) =>
-      current.map((step) => (step.id === "regions" ? { ...step, roiBoxes: boxes } : step))
-    );
     setCalibrationMessage("ROI boxes applied. Next scan will use these extraction regions.");
     setVisualDialogStage("ROI boxes applied. Next scan will use these extraction regions.");
+    const rectifiedStep = visualSteps.find((step) => step.id === "rectified");
+    if (rectifiedStep?.imageDataUrl) {
+      setVisualDialogLoading(true);
+      setVisualDialogError(null);
+      setVisualDialogStage("Updating ROI overlays without re-warping sheet...");
+      try {
+        const { regionsStep, readAreasStep } = await buildRoiReadAreaStepsFromRectifiedDataUrl(
+          rectifiedStep.imageDataUrl,
+          nextTemplate,
+          (stage) => setVisualDialogStage(stage)
+        );
+        setVisualSteps((current) =>
+          current.map((step) => {
+            if (step.id === "regions") {
+              return regionsStep;
+            }
+            if (step.id === "read-areas") {
+              return readAreasStep;
+            }
+            return step;
+          })
+        );
+      } catch {
+        await rebuildVisualStepsForTemplate(nextTemplate, "Refreshing ROI preview...");
+      } finally {
+        setVisualDialogLoading(false);
+        setVisualDialogStage(null);
+      }
+      return;
+    }
     await rebuildVisualStepsForTemplate(nextTemplate, "Refreshing ROI preview...");
   };
 
