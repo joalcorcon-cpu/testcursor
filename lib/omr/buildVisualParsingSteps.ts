@@ -87,28 +87,129 @@ const detectCornerCentroid = (
   customSearchRegion?: BubbleRegion
 ) => {
   const searchRect = normalizeRect(customSearchRegion ?? expandMarker(marker, 4), width, height);
-  let sumX = 0;
-  let sumY = 0;
-  let count = 0;
-  for (let y = searchRect.y; y < searchRect.y + searchRect.h; y += 1) {
-    for (let x = searchRect.x; x < searchRect.x + searchRect.w; x += 1) {
-      if (x < 0 || x >= width || y < 0 || y >= height) {
+  const regionWidth = searchRect.w;
+  const regionHeight = searchRect.h;
+  const visited = new Uint8Array(regionWidth * regionHeight);
+  const indexOf = (x: number, y: number) => y * regionWidth + x;
+  const expectedX = Math.round((marker.x + marker.w / 2) * width) - searchRect.x;
+  const expectedY = Math.round((marker.y + marker.h / 2) * height) - searchRect.y;
+
+  let best:
+    | {
+        count: number;
+        sumX: number;
+        sumY: number;
+        minX: number;
+        minY: number;
+        maxX: number;
+        maxY: number;
+        score: number;
+      }
+    | null = null;
+
+  for (let startY = 0; startY < regionHeight; startY += 1) {
+    for (let startX = 0; startX < regionWidth; startX += 1) {
+      const localIndex = indexOf(startX, startY);
+      if (visited[localIndex]) {
         continue;
       }
-      const idx = y * width + x;
-      if (grayscale[idx] <= threshold) {
+      const globalX = searchRect.x + startX;
+      const globalY = searchRect.y + startY;
+      const globalIndex = globalY * width + globalX;
+      if (grayscale[globalIndex] > threshold) {
+        visited[localIndex] = 1;
+        continue;
+      }
+
+      const queueX = [startX];
+      const queueY = [startY];
+      visited[localIndex] = 1;
+      let cursor = 0;
+      let count = 0;
+      let sumX = 0;
+      let sumY = 0;
+      let minX = startX;
+      let minY = startY;
+      let maxX = startX;
+      let maxY = startY;
+
+      while (cursor < queueX.length) {
+        const x = queueX[cursor];
+        const y = queueY[cursor];
+        cursor += 1;
+
+        count += 1;
         sumX += x;
         sumY += y;
-        count += 1;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+
+        const neighbors = [
+          [x - 1, y],
+          [x + 1, y],
+          [x, y - 1],
+          [x, y + 1]
+        ] as const;
+        for (const [nx, ny] of neighbors) {
+          if (nx < 0 || nx >= regionWidth || ny < 0 || ny >= regionHeight) {
+            continue;
+          }
+          const nLocal = indexOf(nx, ny);
+          if (visited[nLocal]) {
+            continue;
+          }
+          visited[nLocal] = 1;
+          const nGlobal = (searchRect.y + ny) * width + (searchRect.x + nx);
+          if (grayscale[nGlobal] <= threshold) {
+            queueX.push(nx);
+            queueY.push(ny);
+          }
+        }
+      }
+
+      const boxW = Math.max(1, maxX - minX + 1);
+      const boxH = Math.max(1, maxY - minY + 1);
+      const aspect = boxW / boxH;
+      const aspectPenalty = Math.abs(1 - aspect);
+      const centerX = sumX / count;
+      const centerY = sumY / count;
+      const distancePenalty = Math.hypot(centerX - expectedX, centerY - expectedY);
+      const score = count - aspectPenalty * count * 0.7 - distancePenalty * 0.8;
+
+      if (!best || score > best.score) {
+        best = {
+          count,
+          sumX,
+          sumY,
+          minX,
+          minY,
+          maxX,
+          maxY,
+          score
+        };
       }
     }
   }
 
-  const minimumPixels = searchRect.w * searchRect.h * 0.01;
+  const minimumPixels = searchRect.w * searchRect.h * 0.004;
+  const bestCount = best ? best.count : 0;
+  if (!best || best.count < minimumPixels) {
+    return {
+      searchRect,
+      point: null,
+      darkPixelCount: bestCount
+    };
+  }
+
   return {
     searchRect,
-    point: count >= minimumPixels ? { x: sumX / count, y: sumY / count } : null,
-    darkPixelCount: count
+    point: {
+      x: searchRect.x + best.sumX / best.count,
+      y: searchRect.y + best.sumY / best.count
+    },
+    darkPixelCount: best.count
   };
 };
 
