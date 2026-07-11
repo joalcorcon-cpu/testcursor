@@ -10,7 +10,8 @@ import { loadOpenCv } from "@/lib/omr/opencvLoader";
 import type { CvMat } from "@/lib/omr/opencvLoader";
 import type { CornerMarker, OMRResultJson } from "@/types/omr";
 
-const MAX_PROCESSING_DIMENSION = 1800;
+const MAX_PROCESSING_DIMENSION = 1200;
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 const loadImageElement = (file: File) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
@@ -195,6 +196,9 @@ const scoreDigitColumns = (thresholded: CvMat, columns: { x: number; y: number; 
 };
 
 export const processSheetFile = async (file: File): Promise<OMRResultJson> => {
+  if (file.size > MAX_UPLOAD_BYTES) {
+    throw new Error("Image file is too large. Please upload an image smaller than 20MB.");
+  }
   const preprocessed = await toThresholdedMat(file);
   const thresholded = preprocessed.thresholded;
   try {

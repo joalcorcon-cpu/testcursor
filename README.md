@@ -78,5 +78,6 @@ No raw image blobs are stored in Supabase by default.
 
 - Current version performs threshold-based bubble scoring and returns JSON marks/shades.
 - Corner-marker perspective correction is enabled using the four corner blocks from the template.
-- Large photos are downscaled before processing to keep browser scans responsive.
+- Large photos are downscaled (max side ~1200px) before processing to keep browser scans responsive.
+- OpenCV runtime loading now has a timeout guard to avoid indefinite scan hangs.
 - For production, tune region coordinates and thresholds using real scans from your printer/camera setup.

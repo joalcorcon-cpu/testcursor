@@ -56,6 +56,8 @@ export interface CvMat {
   delete: () => void;
 }
 
+const OPENCV_READY_TIMEOUT_MS = 25000;
+
 let loadingPromise: Promise<typeof window.cv> | null = null;
 
 export const loadOpenCv = async (): Promise<typeof window.cv> => {
@@ -68,24 +70,79 @@ export const loadOpenCv = async (): Promise<typeof window.cv> => {
   }
 
   if (!loadingPromise) {
-    loadingPromise = new Promise((resolve, reject) => {
+    loadingPromise = new Promise<typeof window.cv>((resolve, reject) => {
+      let settled = false;
+      const finishResolve = () => {
+        if (settled) return;
+        settled = true;
+        resolve(window.cv as typeof window.cv);
+      };
+      const finishReject = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        loadingPromise = null;
+        reject(error);
+      };
+
+      const isRuntimeReady = () =>
+        Boolean(window.cv && typeof window.cv.Mat === "function" && typeof window.cv.imread === "function");
+
+      const startRuntimeWatch = () => {
+        const startedAt = Date.now();
+        const poll = window.setInterval(() => {
+          if (isRuntimeReady()) {
+            window.clearInterval(poll);
+            finishResolve();
+            return;
+          }
+
+          if (Date.now() - startedAt > OPENCV_READY_TIMEOUT_MS) {
+            window.clearInterval(poll);
+            finishReject(
+              new Error(
+                "OpenCV runtime initialization timed out. Please refresh and try again."
+              )
+            );
+          }
+        }, 100);
+      };
+
       const script = document.createElement("script");
       script.src = "https://docs.opencv.org/4.x/opencv.js";
       script.async = true;
       script.onload = () => {
-        const timer = window.setInterval(() => {
-          if (window.cv) {
-            window.clearInterval(timer);
-            resolve(window.cv);
-          }
-        }, 50);
+        if (isRuntimeReady()) {
+          finishResolve();
+          return;
+        }
+
+        const cvAny = (
+          globalThis as { cv?: { onRuntimeInitialized?: () => void } }
+        ).cv;
+        if (cvAny) {
+          const previous = cvAny.onRuntimeInitialized;
+          cvAny.onRuntimeInitialized = () => {
+            previous?.();
+            if (isRuntimeReady()) {
+              finishResolve();
+            }
+          };
+          startRuntimeWatch();
+        } else {
+          startRuntimeWatch();
+        }
       };
       script.onerror = () => {
-        reject(new Error("Unable to load OpenCV.js"));
+        finishReject(new Error("Unable to load OpenCV.js"));
       };
       document.body.appendChild(script);
     });
   }
 
-  return loadingPromise;
+  try {
+    return await loadingPromise;
+  } catch (error) {
+    loadingPromise = null;
+    throw error;
+  }
 };
