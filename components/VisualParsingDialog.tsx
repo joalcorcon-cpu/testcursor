@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -415,6 +416,17 @@ function RoiBoxEditor({
     onDraftRoiBoxesChange(draftRoiBoxes);
   }, [draftRoiBoxes, onDraftRoiBoxesChange]);
 
+  const updateDraftRoiBoxes = useCallback(
+    (updater: (current: RoiBoxVisual[]) => RoiBoxVisual[]) => {
+      setDraftRoiBoxes((current) => {
+        const next = updater(current);
+        onDraftRoiBoxesChange(next);
+        return next;
+      });
+    },
+    [onDraftRoiBoxesChange]
+  );
+
   useEffect(() => {
     if (!dragState) {
       return;
@@ -428,7 +440,7 @@ function RoiBoxEditor({
       const dy =
         (event.clientY - dragState.startClientY) / Math.max(1, dragState.containerHeight);
 
-      setDraftRoiBoxes((current) =>
+      updateDraftRoiBoxes((current) =>
         current.map((box) => {
           if (box.id !== dragState.id) {
             return box;
@@ -462,7 +474,7 @@ function RoiBoxEditor({
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
     };
-  }, [dragState]);
+  }, [dragState, updateDraftRoiBoxes]);
 
   const beginDrag = (
     event: ReactPointerEvent<HTMLButtonElement>,
@@ -548,7 +560,7 @@ function RoiBoxEditor({
         <button onClick={() => void onApplyRoiBoxes(draftRoiBoxes)}>Apply ROI Boxes</button>
         <button
           onClick={() => {
-            setDraftRoiBoxes(initialRoiBoxes);
+            updateDraftRoiBoxes(() => initialRoiBoxes);
           }}
         >
           Reset
@@ -585,6 +597,30 @@ export function VisualParsingDialog({
   );
   const readAreasStep = useMemo(() => steps.find((step) => step.id === "read-areas"), [steps]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    const scrollY = window.scrollY;
+    const original = {
+      overflow: document.body.style.overflow,
+      position: document.body.style.position,
+      top: document.body.style.top,
+      width: document.body.style.width
+    };
+    document.body.style.overflow = "hidden";
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = "100%";
+    return () => {
+      document.body.style.overflow = original.overflow;
+      document.body.style.position = original.position;
+      document.body.style.top = original.top;
+      document.body.style.width = original.width;
+      window.scrollTo(0, scrollY);
+    };
+  }, [isOpen]);
+
   if (!isOpen) {
     return null;
   }
@@ -616,10 +652,18 @@ export function VisualParsingDialog({
     if (!canGoNext || !canInteract) {
       return;
     }
-    if (currentPage === "roi" && roiDraftBoxes && roiDraftBoxes.length > 0) {
+    const boxesToApply =
+      currentPage === "roi"
+        ? roiDraftBoxes && roiDraftBoxes.length > 0
+          ? roiDraftBoxes
+          : roiStep?.roiBoxes && roiStep.roiBoxes.length > 0
+            ? roiStep.roiBoxes
+            : null
+        : null;
+    if (boxesToApply) {
       setNavigationBusy(true);
       try {
-        await onApplyRoiBoxes(roiDraftBoxes);
+        await onApplyRoiBoxes(boxesToApply);
       } finally {
         setNavigationBusy(false);
       }
