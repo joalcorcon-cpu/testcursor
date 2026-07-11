@@ -292,29 +292,44 @@ const normalizeCornerSnapshot = (snapshot) => {
     return null;
   }
   const grayArray = Uint8ClampedArray.from(grayscale.map((value) => clamp(Number(value) || 0, 0, 255)));
+  const centroidX =
+    Number.isFinite(snapshot.centroidX) && snapshot.centroidX >= 0
+      ? Number(snapshot.centroidX)
+      : null;
+  const centroidY =
+    Number.isFinite(snapshot.centroidY) && snapshot.centroidY >= 0
+      ? Number(snapshot.centroidY)
+      : null;
   return {
     width: Math.round(width),
     height: Math.round(height),
-    grayscale: grayArray
+    grayscale: grayArray,
+    centroidX,
+    centroidY
   };
 };
 
 const quadrantRectForCorner = (cornerId, width, height) => {
-  const halfWidth = Math.max(1, Math.floor(width / 2));
-  const halfHeight = Math.max(1, Math.floor(height / 2));
+  const quarterWidth = Math.max(1, Math.floor(width / 4));
+  const quarterHeight = Math.max(1, Math.floor(height / 4));
   if (cornerId === "tl") {
-    return { x: 0, y: 0, width: halfWidth, height: halfHeight };
+    return { x: 0, y: 0, width: quarterWidth, height: quarterHeight };
   }
   if (cornerId === "tr") {
-    return { x: width - halfWidth, y: 0, width: halfWidth, height: halfHeight };
+    return { x: width - quarterWidth, y: 0, width: quarterWidth, height: quarterHeight };
   }
   if (cornerId === "bl") {
-    return { x: 0, y: height - halfHeight, width: halfWidth, height: halfHeight };
+    return { x: 0, y: height - quarterHeight, width: quarterWidth, height: quarterHeight };
   }
-  return { x: width - halfWidth, y: height - halfHeight, width: halfWidth, height: halfHeight };
+  return {
+    x: width - quarterWidth,
+    y: height - quarterHeight,
+    width: quarterWidth,
+    height: quarterHeight
+  };
 };
 
-const detectCornerByTemplateMatch = (cv, gray, cornerId, snapshot) => {
+const detectCornerByTemplateMatch = (cv, gray, cornerId, snapshot, otsuThreshold) => {
   const normalized = normalizeCornerSnapshot(snapshot);
   if (!normalized) {
     return null;
@@ -338,11 +353,64 @@ const detectCornerByTemplateMatch = (cv, gray, cornerId, snapshot) => {
   try {
     cv.matchTemplate(quadrantRoi, templateMat, result, cv.TM_CCOEFF_NORMED);
     const { maxVal, maxLoc } = cv.minMaxLoc(result);
+    const matchX = quadrant.x + maxLoc.x;
+    const matchY = quadrant.y + maxLoc.y;
+    const sampleRect = new cv.Rect(matchX, matchY, normalized.width, normalized.height);
+    const sampleRoi = gray.roi(sampleRect);
+    let count = 0;
+    let sumX = 0;
+    let sumY = 0;
+    try {
+      for (let y = 0; y < normalized.height; y += 1) {
+        for (let x = 0; x < normalized.width; x += 1) {
+          const pixel = sampleRoi.ucharPtr(y, x)[0];
+          if (pixel <= otsuThreshold) {
+            count += 1;
+            sumX += x;
+            sumY += y;
+          }
+        }
+      }
+    } finally {
+      sampleRoi.delete();
+    }
+
+    const matchThreshold = 0.3;
+    const minDarkPixels = normalized.width * normalized.height * 0.004;
+    if (count >= minDarkPixels) {
+      return {
+        x: matchX + sumX / count,
+        y: matchY + sumY / count,
+        found: maxVal >= matchThreshold,
+        score: maxVal,
+        searchRect: quadrant,
+        matchRect: { x: matchX, y: matchY, width: normalized.width, height: normalized.height },
+        usedSnapshotCentroid: false
+      };
+    }
+    if (
+      normalized.centroidX !== null &&
+      normalized.centroidY !== null &&
+      maxVal >= matchThreshold
+    ) {
+      return {
+        x: matchX + normalized.centroidX,
+        y: matchY + normalized.centroidY,
+        found: true,
+        score: maxVal,
+        searchRect: quadrant,
+        matchRect: { x: matchX, y: matchY, width: normalized.width, height: normalized.height },
+        usedSnapshotCentroid: true
+      };
+    }
     return {
-      x: quadrant.x + maxLoc.x + normalized.width / 2,
-      y: quadrant.y + maxLoc.y + normalized.height / 2,
-      found: maxVal >= 0.35,
-      score: maxVal
+      x: NaN,
+      y: NaN,
+      found: false,
+      score: maxVal,
+      searchRect: quadrant,
+      matchRect: { x: matchX, y: matchY, width: normalized.width, height: normalized.height },
+      usedSnapshotCentroid: false
     };
   } finally {
     quadrantRoi.delete();
@@ -419,13 +487,44 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
   ].filter(Boolean);
 
   if (orderedMarkers.length !== 4) {
-    return { valid: false, corners: [] };
+    return { valid: false, corners: [], debug: [] };
   }
 
+  const hasAllCornerSnapshots = orderedMarkers.every(
+    (marker) => normalizeCornerSnapshot(template.cornerSnapshots?.[marker.id]) !== null
+  );
+
   const cornerDetections = orderedMarkers.map((marker) => {
+    if (hasAllCornerSnapshots) {
+      const snapshotMatch = detectCornerByTemplateMatch(
+        cv,
+        gray,
+        marker.id,
+        template.cornerSnapshots?.[marker.id],
+        otsuThreshold
+      );
+      if (snapshotMatch) {
+        return {
+          detection: snapshotMatch,
+          debug: {
+            id: marker.id,
+            method: "snapshot-match",
+            found: snapshotMatch.found,
+            point: Number.isFinite(snapshotMatch.x) && Number.isFinite(snapshotMatch.y)
+              ? { x: snapshotMatch.x, y: snapshotMatch.y }
+              : null,
+            searchRect: snapshotMatch.searchRect,
+            matchRect: snapshotMatch.matchRect,
+            score: snapshotMatch.score,
+            usedSnapshotCentroid: snapshotMatch.usedSnapshotCentroid
+          }
+        };
+      }
+    }
+
     const customSearchRegion = template.cornerSearchWindows?.[marker.id];
     if (customSearchRegion) {
-      return detectCornerPoint(
+      const detection = detectCornerPoint(
         cv,
         gray,
         thresholded,
@@ -433,14 +532,45 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
         customSearchRegion,
         otsuThreshold
       );
+      return {
+        detection,
+        debug: {
+          id: marker.id,
+          method: "manual-region-centroid",
+          found: detection.found,
+          point:
+            Number.isFinite(detection.x) && Number.isFinite(detection.y)
+              ? { x: detection.x, y: detection.y }
+              : null,
+          searchRect: normalizeRegion(customSearchRegion, thresholded.cols, thresholded.rows)
+        }
+      };
     }
 
     const cornerSnapshot = template.cornerSnapshots?.[marker.id];
-    const snapshotMatch = detectCornerByTemplateMatch(cv, gray, marker.id, cornerSnapshot);
+    const snapshotMatch = detectCornerByTemplateMatch(
+      cv,
+      gray,
+      marker.id,
+      cornerSnapshot,
+      otsuThreshold
+    );
     if (snapshotMatch?.found) {
-      return { x: snapshotMatch.x, y: snapshotMatch.y, found: true };
+      return {
+        detection: { x: snapshotMatch.x, y: snapshotMatch.y, found: true },
+        debug: {
+          id: marker.id,
+          method: "snapshot-match",
+          found: true,
+          point: { x: snapshotMatch.x, y: snapshotMatch.y },
+          searchRect: snapshotMatch.searchRect,
+          matchRect: snapshotMatch.matchRect,
+          score: snapshotMatch.score,
+          usedSnapshotCentroid: snapshotMatch.usedSnapshotCentroid
+        }
+      };
     }
-    return detectCornerPoint(
+    const detection = detectCornerPoint(
       cv,
       gray,
       thresholded,
@@ -448,13 +578,37 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
       undefined,
       otsuThreshold
     );
+    return {
+      detection,
+      debug: {
+        id: marker.id,
+        method: "expanded-region-contour",
+        found: detection.found,
+        point:
+          Number.isFinite(detection.x) && Number.isFinite(detection.y)
+            ? { x: detection.x, y: detection.y }
+            : null,
+        searchRect: normalizeRegion(
+          expandMarkerRegion(marker, 4),
+          thresholded.cols,
+          thresholded.rows
+        )
+      }
+    };
   });
-  const foundCount = cornerDetections.filter((corner) => corner.found).length;
+  const foundCount = cornerDetections.filter((entry) => entry.detection.found).length;
   if (foundCount < 4) {
     workerLog("Corner detection incomplete", { foundCount });
-    return { valid: false, corners: [] };
+    return {
+      valid: false,
+      corners: [],
+      debug: cornerDetections.map((entry) => entry.debug)
+    };
   }
-  const corners = cornerDetections.map((corner) => ({ x: corner.x, y: corner.y }));
+  const corners = cornerDetections.map((entry) => ({
+    x: entry.detection.x,
+    y: entry.detection.y
+  }));
   const cornerLayoutIsValid =
     corners[0].x < corners[1].x &&
     corners[3].x < corners[2].x &&
@@ -472,10 +626,18 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
           corners[0].x * corners[3].y)
     ) / 2;
   if (!cornerLayoutIsValid || polygonArea < thresholded.cols * thresholded.rows * 0.25) {
-    return { valid: false, corners: [] };
+    return {
+      valid: false,
+      corners: [],
+      debug: cornerDetections.map((entry) => entry.debug)
+    };
   }
 
-  return { valid: true, corners };
+  return {
+    valid: true,
+    corners,
+    debug: cornerDetections.map((entry) => entry.debug)
+  };
 };
 
 const rectifySheet = (cv, gray, thresholded, template, otsuThreshold) => {
@@ -547,7 +709,8 @@ const buildRectifiedPreview = async ({ requestId, imageRgbaBuffer, width, height
         rgbaBuffer: fallbackCopy,
         width,
         height,
-        warped: false
+        warped: false,
+        cornerDebug: cornerResolution.debug
       };
     }
 
@@ -605,7 +768,8 @@ const buildRectifiedPreview = async ({ requestId, imageRgbaBuffer, width, height
       rgbaBuffer: rgbaOut.buffer,
       width,
       height,
-      warped: true
+      warped: true,
+      cornerDebug: cornerResolution.debug
     };
   } finally {
     gray.delete();

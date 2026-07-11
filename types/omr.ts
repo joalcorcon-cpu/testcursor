@@ -20,6 +20,8 @@ export interface CornerSnapshot {
   width: number;
   height: number;
   grayscale: number[];
+  centroidX?: number;
+  centroidY?: number;
 }
 
 export interface DigitColumnRegion {
