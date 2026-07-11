@@ -1,4 +1,8 @@
 import { prepareImageForScan } from "@/lib/omr/prepareImageForScan";
+import {
+  deriveRoiBoxesFromTemplate,
+  type RoiBoxVisual
+} from "@/lib/omr/roiCalibration";
 import type { BubbleRegion, CornerMarker, OMRTemplate } from "@/types/omr";
 
 export interface CornerWindowVisual {
@@ -19,6 +23,7 @@ export interface VisualParseStep {
   imageDataUrl: string;
   baseImageDataUrl?: string;
   cornerWindows?: CornerWindowVisual[];
+  roiBoxes?: RoiBoxVisual[];
 }
 
 const toCanvas = (width: number, height: number): HTMLCanvasElement => {
@@ -116,17 +121,6 @@ const detectCornerCentroid = (
     },
     usedFallback: false
   };
-};
-
-const flattenRegions = (groups: BubbleRegion[][]): BubbleRegion[] =>
-  groups.flatMap((group) => group);
-
-const regionBounds = (regions: BubbleRegion[]): BubbleRegion => {
-  const left = Math.min(...regions.map((region) => region.x));
-  const top = Math.min(...regions.map((region) => region.y));
-  const right = Math.max(...regions.map((region) => region.x + region.w));
-  const bottom = Math.max(...regions.map((region) => region.y + region.h));
-  return { x: left, y: top, w: right - left, h: bottom - top };
 };
 
 const grayscaleFromRgba = (rgba: Uint8ClampedArray): Uint8ClampedArray => {
@@ -248,24 +242,7 @@ export const buildVisualParsingSteps = async (
   }));
 
   onStage?.("Drawing region overlays...");
-  const studentBounds = regionBounds(flattenRegions(template.studentId.columns));
-  const examCodeBounds = regionBounds(flattenRegions(template.examCode.columns));
-  const examSetBounds = regionBounds(Object.values(template.examSet.choices));
-  const answersFirstColBounds = regionBounds(
-    template.answers
-      .filter((item) => item.question <= 35)
-      .flatMap((item) => Object.values(item.choices))
-  );
-  const answersSecondColBounds = regionBounds(
-    template.answers
-      .filter((item) => item.question >= 36 && item.question <= 70)
-      .flatMap((item) => Object.values(item.choices))
-  );
-  const answersThirdColBounds = regionBounds(
-    template.answers
-      .filter((item) => item.question >= 71)
-      .flatMap((item) => Object.values(item.choices))
-  );
+  const roiBoxes = deriveRoiBoxesFromTemplate(template);
 
   const cornerOverlayUrl = drawDataUrl(normalizedImage, (ctx) => {
     ctx.lineWidth = 3;
@@ -294,13 +271,29 @@ export const buildVisualParsingSteps = async (
       ctx.font = "16px Arial";
       ctx.fillText(label, rect.x + 6, rect.y + 18);
     };
-
-    drawLabel("Student ID", studentBounds, "#55d6ff");
-    drawLabel("Exam Code", examCodeBounds, "#ff9f43");
-    drawLabel("Exam Set", examSetBounds, "#7bed9f");
-    drawLabel("Answers 1-35", answersFirstColBounds, "#ff6b81");
-    drawLabel("Answers 36-70", answersSecondColBounds, "#ffa502");
-    drawLabel("Answers 71-100", answersThirdColBounds, "#70a1ff");
+    const roiColorMap: Record<string, string> = {
+      studentId: "#55d6ff",
+      examCode: "#ff9f43",
+      examSet: "#7bed9f",
+      answersCol1: "#ff6b81",
+      answersCol2: "#ffa502",
+      answersCol3: "#70a1ff"
+    };
+    const roiLabelMap: Record<string, string> = {
+      studentId: "Student ID",
+      examCode: "Exam Code",
+      examSet: "Exam Set",
+      answersCol1: "Answers 1-35",
+      answersCol2: "Answers 36-70",
+      answersCol3: "Answers 71-100"
+    };
+    for (const box of roiBoxes) {
+      drawLabel(
+        roiLabelMap[box.id] ?? box.id,
+        { x: box.x, y: box.y, w: box.w, h: box.h },
+        roiColorMap[box.id] ?? "#ffffff"
+      );
+    }
   });
 
   onStage?.("Compiling visual step list...");
@@ -339,7 +332,9 @@ export const buildVisualParsingSteps = async (
       title: "Step 5: Region-of-interest map",
       description:
         "Student ID, Exam Code, Exam Set, and 3 answer columns highlighted for extraction.",
-      imageDataUrl: roiOverlayUrl
+      imageDataUrl: roiOverlayUrl,
+      baseImageDataUrl: normalizedImageDataUrl,
+      roiBoxes
     }
   ];
 };

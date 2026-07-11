@@ -9,10 +9,11 @@ import {
   buildVisualParsingSteps,
   type VisualParseStep
 } from "@/lib/omr/buildVisualParsingSteps";
+import { applyRoiBoxesToTemplate, type RoiBoxVisual } from "@/lib/omr/roiCalibration";
 import { processSheetFileInWorker, warmupOmrWorker } from "@/lib/omr/processSheetInWorker";
 import { prepareImageForScan } from "@/lib/omr/prepareImageForScan";
 import { defaultSheetTemplate } from "@/lib/templates/defaultSheetTemplate";
-import type { OMRResultJson, OMRTemplate, ScanRecord } from "@/types/omr";
+import type { CornerSnapshot, OMRResultJson, OMRTemplate, ScanRecord } from "@/types/omr";
 
 export default function HomePage() {
   const [activeTemplate, setActiveTemplate] = useState<OMRTemplate>(() =>
@@ -110,6 +111,7 @@ export default function HomePage() {
 
   const handleFileChange = (nextFile: File | null) => {
     setFile(nextFile);
+    setCalibrationMessage(null);
   };
 
   const saveScan = async () => {
@@ -222,6 +224,34 @@ export default function HomePage() {
     setVisualDialogStage("Corner windows applied. Next scan will use these search regions.");
   };
 
+  const captureCornerSnapshots = (
+    snapshots: Partial<Record<CornerWindowVisual["id"], CornerSnapshot>>
+  ) => {
+    setActiveTemplate((current) => ({
+      ...current,
+      cornerSnapshots: {
+        ...(current.cornerSnapshots ?? {}),
+        ...snapshots
+      }
+    }));
+    setCalibrationMessage(
+      "Corner snapshots captured. Next scan will use quadrant template matching for corners."
+    );
+    setVisualDialogStage(
+      "Corner snapshots captured. Next scan will use quadrant template matching for corners."
+    );
+  };
+
+  const applyRoiBoxes = (boxes: RoiBoxVisual[]) => {
+    setActiveTemplate((current) => applyRoiBoxesToTemplate(current, boxes));
+    setVisualDialogError(null);
+    setVisualSteps((current) =>
+      current.map((step) => (step.id === "regions" ? { ...step, roiBoxes: boxes } : step))
+    );
+    setCalibrationMessage("ROI boxes applied. Next scan will use these extraction regions.");
+    setVisualDialogStage("ROI boxes applied. Next scan will use these extraction regions.");
+  };
+
   return (
     <main className="main">
       <h1>OMR Answer Sheet Scanner</h1>
@@ -262,6 +292,8 @@ export default function HomePage() {
         error={visualDialogError}
         steps={visualSteps}
         onApplyCornerWindows={applyCornerWindows}
+        onCaptureCornerSnapshots={captureCornerSnapshots}
+        onApplyRoiBoxes={applyRoiBoxes}
         onClose={() => setVisualDialogOpen(false)}
       />
     </main>

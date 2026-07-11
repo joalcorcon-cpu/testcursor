@@ -183,6 +183,79 @@ const detectCornerPoint = (cv, thresholded, marker, customSearchRegion) => {
   };
 };
 
+const normalizeCornerSnapshot = (snapshot) => {
+  if (!snapshot || typeof snapshot !== "object") {
+    return null;
+  }
+  const width = Number(snapshot.width);
+  const height = Number(snapshot.height);
+  const grayscale = Array.isArray(snapshot.grayscale) ? snapshot.grayscale : null;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 4 || height < 4 || !grayscale) {
+    return null;
+  }
+  if (grayscale.length !== Math.round(width) * Math.round(height)) {
+    return null;
+  }
+  const grayArray = Uint8ClampedArray.from(grayscale.map((value) => clamp(Number(value) || 0, 0, 255)));
+  return {
+    width: Math.round(width),
+    height: Math.round(height),
+    grayscale: grayArray
+  };
+};
+
+const quadrantRectForCorner = (cornerId, width, height) => {
+  const halfWidth = Math.max(1, Math.floor(width / 2));
+  const halfHeight = Math.max(1, Math.floor(height / 2));
+  if (cornerId === "tl") {
+    return { x: 0, y: 0, width: halfWidth, height: halfHeight };
+  }
+  if (cornerId === "tr") {
+    return { x: width - halfWidth, y: 0, width: halfWidth, height: halfHeight };
+  }
+  if (cornerId === "bl") {
+    return { x: 0, y: height - halfHeight, width: halfWidth, height: halfHeight };
+  }
+  return { x: width - halfWidth, y: height - halfHeight, width: halfWidth, height: halfHeight };
+};
+
+const detectCornerByTemplateMatch = (cv, gray, cornerId, snapshot) => {
+  const normalized = normalizeCornerSnapshot(snapshot);
+  if (!normalized) {
+    return null;
+  }
+  const quadrant = quadrantRectForCorner(cornerId, gray.cols, gray.rows);
+  if (normalized.width >= quadrant.width || normalized.height >= quadrant.height) {
+    return null;
+  }
+
+  const quadrantRoi = gray.roi(
+    new cv.Rect(quadrant.x, quadrant.y, quadrant.width, quadrant.height)
+  );
+  const templateMat = cv.matFromArray(
+    normalized.height,
+    normalized.width,
+    cv.CV_8UC1,
+    Array.from(normalized.grayscale)
+  );
+  const result = new cv.Mat();
+
+  try {
+    cv.matchTemplate(quadrantRoi, templateMat, result, cv.TM_CCOEFF_NORMED);
+    const { maxVal, maxLoc } = cv.minMaxLoc(result);
+    return {
+      x: quadrant.x + maxLoc.x + normalized.width / 2,
+      y: quadrant.y + maxLoc.y + normalized.height / 2,
+      found: maxVal >= 0.35,
+      score: maxVal
+    };
+  } finally {
+    quadrantRoi.delete();
+    templateMat.delete();
+    result.delete();
+  }
+};
+
 const scoreDigitColumns = (cv, thresholded, columns) => {
   const shadeScores = columns.map((column) =>
     column.map((bubble) => regionShadeScore(cv, thresholded, bubble))
@@ -254,9 +327,14 @@ const rectifySheet = (cv, gray, thresholded, template) => {
     return { thresholded, warped: false };
   }
 
-  const cornerDetections = orderedMarkers.map((marker) =>
-    detectCornerPoint(cv, thresholded, marker, template.cornerSearchWindows?.[marker.id])
-  );
+  const cornerDetections = orderedMarkers.map((marker) => {
+    const cornerSnapshot = template.cornerSnapshots?.[marker.id];
+    const snapshotMatch = detectCornerByTemplateMatch(cv, gray, marker.id, cornerSnapshot);
+    if (snapshotMatch?.found) {
+      return { x: snapshotMatch.x, y: snapshotMatch.y, found: true };
+    }
+    return detectCornerPoint(cv, thresholded, marker, template.cornerSearchWindows?.[marker.id]);
+  });
   const foundCount = cornerDetections.filter((corner) => corner.found).length;
   if (foundCount < 4) {
     workerLog("Corner detection incomplete", { foundCount });

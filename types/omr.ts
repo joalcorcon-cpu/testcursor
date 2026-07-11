@@ -15,6 +15,13 @@ export interface CornerMarker {
   h: number;
 }
 
+export interface CornerSnapshot {
+  id: CornerMarker["id"];
+  width: number;
+  height: number;
+  grayscale: number[];
+}
+
 export interface DigitColumnRegion {
   key: string;
   digits: number;
@@ -39,6 +46,7 @@ export interface OMRTemplate {
   sheetHeight: number;
   cornerMarkers: CornerMarker[];
   cornerSearchWindows?: Partial<Record<CornerMarker["id"], BubbleRegion>>;
+  cornerSnapshots?: Partial<Record<CornerMarker["id"], CornerSnapshot>>;
   studentId: DigitColumnRegion;
   examCode: DigitColumnRegion;
   examSet: ExamSetRegion;
