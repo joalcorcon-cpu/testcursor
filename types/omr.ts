@@ -38,6 +38,7 @@ export interface OMRTemplate {
   sheetWidth: number;
   sheetHeight: number;
   cornerMarkers: CornerMarker[];
+  cornerSearchWindows?: Partial<Record<CornerMarker["id"], BubbleRegion>>;
   studentId: DigitColumnRegion;
   examCode: DigitColumnRegion;
   examSet: ExamSetRegion;

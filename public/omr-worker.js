@@ -97,8 +97,8 @@ const pickSelections = (scores, minMarkThreshold = 0.18, ambiguityGap = 0.03) =>
   };
 };
 
-const detectCornerPoint = (cv, thresholded, marker) => {
-  const searchRegion = expandMarkerRegion(marker, 4);
+const detectCornerPoint = (cv, thresholded, marker, customSearchRegion) => {
+  const searchRegion = customSearchRegion ?? expandMarkerRegion(marker, 4);
   const rect = normalizeRegion(searchRegion, thresholded.cols, thresholded.rows);
   const roi = thresholded.roi(rect);
   const expectedX = (marker.x + marker.w / 2) * thresholded.cols - rect.x;
@@ -170,8 +170,8 @@ const detectCornerPoint = (cv, thresholded, marker) => {
 
   if (count < rect.width * rect.height * 0.01) {
     return {
-      x: (marker.x + marker.w / 2) * thresholded.cols,
-      y: (marker.y + marker.h / 2) * thresholded.rows
+      x: rect.x + rect.width / 2,
+      y: rect.y + rect.height / 2
     };
   }
 
@@ -252,7 +252,9 @@ const rectifySheet = (cv, gray, thresholded, template) => {
     return { thresholded, warped: false };
   }
 
-  const corners = orderedMarkers.map((marker) => detectCornerPoint(cv, thresholded, marker));
+  const corners = orderedMarkers.map((marker) =>
+    detectCornerPoint(cv, thresholded, marker, template.cornerSearchWindows?.[marker.id])
+  );
   const cornerLayoutIsValid =
     corners[0].x < corners[1].x &&
     corners[3].x < corners[2].x &&

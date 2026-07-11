@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ScanUploader } from "@/components/ScanUploader";
 import { ResultsReview } from "@/components/ResultsReview";
 import { VisualParsingDialog } from "@/components/VisualParsingDialog";
@@ -16,6 +16,9 @@ import type { OMRResultJson, OMRTemplate, ScanRecord } from "@/types/omr";
 
 export default function HomePage() {
   const [activeTemplate, setActiveTemplate] = useState<OMRTemplate>(() =>
+    JSON.parse(JSON.stringify(defaultSheetTemplate))
+  );
+  const activeTemplateRef = useRef<OMRTemplate>(
     JSON.parse(JSON.stringify(defaultSheetTemplate))
   );
   const [file, setFile] = useState<File | null>(null);
@@ -45,6 +48,10 @@ export default function HomePage() {
       // Warmup is best-effort; detailed errors surface during an explicit scan request.
     });
   }, []);
+
+  useEffect(() => {
+    activeTemplateRef.current = activeTemplate;
+  }, [activeTemplate]);
 
   const refreshScans = async () => {
     const params = new URLSearchParams();
@@ -79,7 +86,7 @@ export default function HomePage() {
         workerBuffer,
         prepared.width,
         prepared.height,
-        activeTemplate,
+        activeTemplateRef.current,
         (stage) => setScanStage(stage),
         controller.signal
       );
@@ -142,7 +149,7 @@ export default function HomePage() {
     try {
       const steps = await buildVisualParsingSteps(
         file,
-        activeTemplate,
+        activeTemplateRef.current,
         (stage) => setVisualDialogStage(stage)
       );
       setVisualSteps(steps);
@@ -159,6 +166,19 @@ export default function HomePage() {
   };
 
   const applyCornerWindows = (windows: CornerWindowVisual[]) => {
+    const searchWindows = windows.reduce<NonNullable<OMRTemplate["cornerSearchWindows"]>>(
+      (accumulator, cornerWindow) => {
+        accumulator[cornerWindow.id] = {
+          x: cornerWindow.x,
+          y: cornerWindow.y,
+          w: cornerWindow.w,
+          h: cornerWindow.h
+        };
+        return accumulator;
+      },
+      {}
+    );
+
     setActiveTemplate((current) => {
       const nextCornerMarkers = current.cornerMarkers.map((marker) => {
         const cornerWindow = windows.find((window) => window.id === marker.id);
@@ -166,8 +186,8 @@ export default function HomePage() {
           return marker;
         }
 
-        const nextWidth = Math.max(0.004, cornerWindow.w / 4);
-        const nextHeight = Math.max(0.004, cornerWindow.h / 4);
+        const nextWidth = Math.max(0.004, marker.w);
+        const nextHeight = Math.max(0.004, marker.h);
         const centerX = cornerWindow.x + cornerWindow.w / 2;
         const centerY = cornerWindow.y + cornerWindow.h / 2;
 
@@ -185,12 +205,15 @@ export default function HomePage() {
 
       return {
         ...current,
+        cornerSearchWindows: searchWindows,
         cornerMarkers: nextCornerMarkers
       };
     });
+    setVisualDialogError(null);
     setVisualSteps((current) =>
       current.map((step) => (step.id === "corners" ? { ...step, cornerWindows: windows } : step))
     );
+    setVisualDialogStage("Corner windows applied. Next scan will use these search regions.");
   };
 
   return (

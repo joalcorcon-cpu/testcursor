@@ -76,9 +76,10 @@ const detectCornerCentroid = (
   thresholdMap: Uint8ClampedArray,
   width: number,
   height: number,
-  marker: CornerMarker
+  marker: CornerMarker,
+  customSearchRegion?: BubbleRegion
 ) => {
-  const searchRect = normalizeRect(expandMarker(marker, 4), width, height);
+  const searchRect = normalizeRect(customSearchRegion ?? expandMarker(marker, 4), width, height);
   let sumX = 0;
   let sumY = 0;
   let count = 0;
@@ -227,7 +228,13 @@ export const buildVisualParsingSteps = async (
   );
   const normalizedImageDataUrl = toDataUrl(normalizedImage);
   const cornerDetections = template.cornerMarkers.map((marker) =>
-    detectCornerCentroid(thresholdMask, normalizedImage.width, normalizedImage.height, marker)
+    detectCornerCentroid(
+      thresholdMask,
+      normalizedImage.width,
+      normalizedImage.height,
+      marker,
+      template.cornerSearchWindows?.[marker.id]
+    )
   );
   const cornerWindows: CornerWindowVisual[] = cornerDetections.map((detection, index) => ({
     id: template.cornerMarkers[index].id,
