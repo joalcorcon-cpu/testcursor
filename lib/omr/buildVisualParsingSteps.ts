@@ -572,8 +572,53 @@ export const buildVisualParsingSteps = async (
       ctx.fillText(label, rect.x + 4, rect.y - 6);
     };
 
+    const drawGrid = (region: BubbleRegion, cols: number, rows: number) => {
+      const rect = normalizeRect(region, rectified.image.width, rectified.image.height);
+      ctx.strokeStyle = "rgba(0,255,149,0.25)";
+      ctx.lineWidth = 1;
+      for (let col = 1; col < cols; col += 1) {
+        const x = rect.x + (rect.w * col) / cols;
+        ctx.beginPath();
+        ctx.moveTo(x, rect.y);
+        ctx.lineTo(x, rect.y + rect.h);
+        ctx.stroke();
+      }
+      for (let row = 1; row < rows; row += 1) {
+        const y = rect.y + (rect.h * row) / rows;
+        ctx.beginPath();
+        ctx.moveTo(rect.x, y);
+        ctx.lineTo(rect.x + rect.w, y);
+        ctx.stroke();
+      }
+    };
+
     for (const box of roiBoxes) {
       drawOuter(box.id, { x: box.x, y: box.y, w: box.w, h: box.h });
+    }
+    const roiById = new Map(roiBoxes.map((box) => [box.id, box]));
+    const studentIdBox = roiById.get("studentId");
+    if (studentIdBox) {
+      drawGrid(studentIdBox, template.studentId.digits, template.studentId.bubbleRows);
+    }
+    const examCodeBox = roiById.get("examCode");
+    if (examCodeBox) {
+      drawGrid(examCodeBox, template.examCode.digits, template.examCode.bubbleRows);
+    }
+    const examSetBox = roiById.get("examSet");
+    if (examSetBox) {
+      drawGrid(examSetBox, 4, 1);
+    }
+    const answersCol1Box = roiById.get("answersCol1");
+    if (answersCol1Box) {
+      drawGrid(answersCol1Box, 4, 35);
+    }
+    const answersCol2Box = roiById.get("answersCol2");
+    if (answersCol2Box) {
+      drawGrid(answersCol2Box, 4, 35);
+    }
+    const answersCol3Box = roiById.get("answersCol3");
+    if (answersCol3Box) {
+      drawGrid(answersCol3Box, 4, 30);
     }
 
     for (const column of template.studentId.columns) {
