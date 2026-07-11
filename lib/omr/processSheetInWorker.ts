@@ -57,7 +57,7 @@ const ensureWorkerReady = async (): Promise<Worker> => {
       const initError = new Error("Worker initialization timed out.");
       teardownWorker(initError);
       reject(initError);
-    }, 120000);
+    }, 240000);
 
     worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
       const payload = event.data;

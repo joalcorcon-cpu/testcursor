@@ -1,12 +1,19 @@
 const OPENCV_SCRIPT_URL = "/opencv.js";
-const OPENCV_READY_TIMEOUT_MS = 60000;
+const OPENCV_READY_TIMEOUT_MS = 180000;
 const MAX_RGBA_BYTES = 25 * 1024 * 1024;
 
 let cvReadyPromise = null;
+let cvReady = false;
+let lastInitError = "";
 const currentStageByRequest = new Map();
 
 const isCvReady = () =>
-  Boolean(self.cv && typeof self.cv.Mat === "function" && typeof self.cv.matFromImageData === "function");
+  Boolean(
+    self.cv &&
+      typeof self.cv.Mat === "function" &&
+      typeof self.cv.threshold === "function" &&
+      typeof self.cv.cvtColor === "function"
+  );
 
 const loadOpenCv = async () => {
   if (cvReadyPromise) {
@@ -16,11 +23,12 @@ const loadOpenCv = async () => {
   cvReadyPromise = new Promise((resolve, reject) => {
     const startedAt = Date.now();
     const rejectTimeout = () => {
-      reject(new Error("OpenCV runtime initialization timed out in worker."));
+      const suffix = lastInitError ? ` Last error: ${lastInitError}` : "";
+      reject(new Error(`OpenCV runtime initialization timed out in worker.${suffix}`));
     };
 
     const pollReady = () => {
-      if (isCvReady()) {
+      if (cvReady || isCvReady()) {
         resolve(self.cv);
         return;
       }
@@ -31,6 +39,18 @@ const loadOpenCv = async () => {
       setTimeout(pollReady, 100);
     };
 
+    const moduleConfig = self.cv && typeof self.cv === "object" ? self.cv : {};
+    moduleConfig.locateFile = (path) => `/${path}`;
+    moduleConfig.onRuntimeInitialized = () => {
+      cvReady = true;
+    };
+    moduleConfig.printErr = (...args) => {
+      lastInitError = args
+        .map((value) => (typeof value === "string" ? value : String(value)))
+        .join(" ");
+    };
+    self.cv = moduleConfig;
+
     try {
       importScripts(OPENCV_SCRIPT_URL);
     } catch (error) {
@@ -38,26 +58,14 @@ const loadOpenCv = async () => {
       return;
     }
 
-    if (isCvReady()) {
+    if (cvReady || isCvReady()) {
       resolve(self.cv);
       return;
-    }
-
-    const cvAny = self.cv;
-    if (cvAny && typeof cvAny === "object") {
-      const previous = cvAny.onRuntimeInitialized;
-      cvAny.onRuntimeInitialized = () => {
-        if (typeof previous === "function") {
-          previous();
-        }
-        if (isCvReady()) {
-          resolve(self.cv);
-        }
-      };
     }
     pollReady();
   }).catch((error) => {
     cvReadyPromise = null;
+    cvReady = false;
     throw error;
   });
 
