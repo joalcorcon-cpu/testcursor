@@ -195,6 +195,7 @@ pre {
   font-size: 0.7rem;
   font-weight: 700;
   text-shadow: 0 1px 2px #000;
+  z-index: 2;
 }
 
 .corner-window-dot {
@@ -205,6 +206,31 @@ pre {
   background: #00ff95;
   left: calc(50% - 4px);
   top: calc(50% - 4px);
+  z-index: 2;
+}
+
+.region-grid-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.region-grid-line {
+  position: absolute;
+  background: rgba(0, 255, 149, 0.45);
+}
+
+.region-grid-line-v {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+
+.region-grid-line-h {
+  left: 0;
+  right: 0;
+  height: 1px;
 }
 
 .region-move-hitbox {
@@ -214,6 +240,7 @@ pre {
   background: transparent;
   cursor: move;
   padding: 0;
+  z-index: 3;
 }
 
 .region-corner-handle {
@@ -224,6 +251,7 @@ pre {
   border: 2px solid #00ff95;
   background: #0c0c0c;
   padding: 0;
+  z-index: 4;
 }
 
 .region-corner-handle-tl {
