@@ -12,9 +12,9 @@ export interface CornerWindowVisual {
   y: number;
   w: number;
   h: number;
-  detectedX: number;
-  detectedY: number;
-  usedFallback: boolean;
+  detectedX: number | null;
+  detectedY: number | null;
+  hasCentroid: boolean;
 }
 
 export interface VisualParseStep {
@@ -103,24 +103,11 @@ const detectCornerCentroid = (
     }
   }
 
-  if (count < searchRect.w * searchRect.h * 0.01) {
-    return {
-      searchRect,
-      point: {
-        x: searchRect.x + searchRect.w / 2,
-        y: searchRect.y + searchRect.h / 2
-      },
-      usedFallback: true
-    };
-  }
-
+  const minimumPixels = searchRect.w * searchRect.h * 0.01;
   return {
     searchRect,
-    point: {
-      x: sumX / count,
-      y: sumY / count
-    },
-    usedFallback: false
+    point: count >= minimumPixels ? { x: sumX / count, y: sumY / count } : null,
+    darkPixelCount: count
   };
 };
 
@@ -173,6 +160,50 @@ const otsuThreshold = (grayscale: Uint8ClampedArray): number => {
   return threshold;
 };
 
+const buildThresholdArtifacts = (imageData: ImageData) => {
+  const grayscale = grayscaleFromRgba(imageData.data);
+  const threshold = otsuThreshold(grayscale);
+  const thresholdRgba = new Uint8ClampedArray(imageData.data.length);
+  const thresholdMask = new Uint8ClampedArray(grayscale.length);
+  for (let index = 0; index < grayscale.length; index += 1) {
+    const rgbaIndex = index * 4;
+    const value = grayscale[index] <= threshold ? 255 : 0;
+    thresholdMask[index] = value;
+    thresholdRgba[rgbaIndex] = value;
+    thresholdRgba[rgbaIndex + 1] = value;
+    thresholdRgba[rgbaIndex + 2] = value;
+    thresholdRgba[rgbaIndex + 3] = 255;
+  }
+  return {
+    grayscale,
+    threshold,
+    thresholdMask,
+    thresholdImage: new ImageData(thresholdRgba, imageData.width, imageData.height)
+  };
+};
+
+const shadeScoreFromMask = (
+  mask: Uint8ClampedArray,
+  width: number,
+  height: number,
+  region: BubbleRegion
+) => {
+  const rect = normalizeRect(region, width, height);
+  let dark = 0;
+  for (let y = rect.y; y < rect.y + rect.h; y += 1) {
+    for (let x = rect.x; x < rect.x + rect.w; x += 1) {
+      if (x < 0 || x >= width || y < 0 || y >= height) {
+        continue;
+      }
+      if (mask[y * width + x] > 0) {
+        dark += 1;
+      }
+    }
+  }
+  const total = rect.w * rect.h;
+  return total > 0 ? dark / total : 0;
+};
+
 export const buildVisualParsingSteps = async (
   file: File,
   template: OMRTemplate,
@@ -204,23 +235,10 @@ export const buildVisualParsingSteps = async (
   );
 
   onStage?.("Computing threshold map...");
-  const threshold = otsuThreshold(grayscale);
-  const thresholdRgba = new Uint8ClampedArray(normalizedImage.data.length);
-  const thresholdMask = new Uint8ClampedArray(grayscale.length);
-  for (let index = 0; index < grayscale.length; index += 1) {
-    const rgbaIndex = index * 4;
-    const value = grayscale[index] <= threshold ? 255 : 0;
-    thresholdMask[index] = value;
-    thresholdRgba[rgbaIndex] = value;
-    thresholdRgba[rgbaIndex + 1] = value;
-    thresholdRgba[rgbaIndex + 2] = value;
-    thresholdRgba[rgbaIndex + 3] = 255;
-  }
-  const thresholdImage = new ImageData(
-    thresholdRgba,
-    normalizedImage.width,
-    normalizedImage.height
-  );
+  const thresholdArtifacts = buildThresholdArtifacts(normalizedImage);
+  const threshold = thresholdArtifacts.threshold;
+  const thresholdMask = thresholdArtifacts.thresholdMask;
+  const thresholdImage = thresholdArtifacts.thresholdImage;
   const normalizedImageDataUrl = toDataUrl(normalizedImage);
   const cornerDetections = template.cornerMarkers.map((marker) =>
     detectCornerCentroid(
@@ -237,10 +255,54 @@ export const buildVisualParsingSteps = async (
     y: detection.searchRect.y / normalizedImage.height,
     w: detection.searchRect.w / normalizedImage.width,
     h: detection.searchRect.h / normalizedImage.height,
-    detectedX: detection.point.x / normalizedImage.width,
-    detectedY: detection.point.y / normalizedImage.height,
-    usedFallback: detection.usedFallback
+    detectedX: detection.point ? detection.point.x / normalizedImage.width : null,
+    detectedY: detection.point ? detection.point.y / normalizedImage.height : null,
+    hasCentroid: Boolean(detection.point)
   }));
+  const cornerCentroidFound = cornerDetections.filter((detection) => Boolean(detection.point)).length;
+
+  const cornerWindowOverlayUrl = drawDataUrl(normalizedImage, (ctx) => {
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#00ff95";
+    for (const detection of cornerDetections) {
+      ctx.strokeRect(
+        detection.searchRect.x,
+        detection.searchRect.y,
+        detection.searchRect.w,
+        detection.searchRect.h
+      );
+    }
+  });
+
+  const cornerCentroidOverlayUrl = drawDataUrl(thresholdImage, (ctx) => {
+    ctx.lineWidth = 2;
+    for (const detection of cornerDetections) {
+      ctx.strokeStyle = "#00ff95";
+      ctx.strokeRect(
+        detection.searchRect.x,
+        detection.searchRect.y,
+        detection.searchRect.w,
+        detection.searchRect.h
+      );
+      if (detection.point) {
+        ctx.fillStyle = "#00ff95";
+        ctx.beginPath();
+        ctx.arc(detection.point.x, detection.point.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.strokeStyle = "#ff4d4f";
+        const centerX = detection.searchRect.x + detection.searchRect.w / 2;
+        const centerY = detection.searchRect.y + detection.searchRect.h / 2;
+        ctx.beginPath();
+        ctx.moveTo(centerX - 6, centerY - 6);
+        ctx.lineTo(centerX + 6, centerY + 6);
+        ctx.moveTo(centerX + 6, centerY - 6);
+        ctx.lineTo(centerX - 6, centerY + 6);
+        ctx.stroke();
+      }
+    }
+  });
+
   onStage?.("Applying perspective transform...");
   let rectified = { image: normalizedImage, warped: false };
   try {
@@ -265,23 +327,6 @@ export const buildVisualParsingSteps = async (
 
   onStage?.("Drawing region overlays...");
   const roiBoxes = deriveRoiBoxesFromTemplate(template);
-
-  const cornerOverlayUrl = drawDataUrl(normalizedImage, (ctx) => {
-    ctx.lineWidth = 3;
-    for (const detection of cornerDetections) {
-      ctx.strokeStyle = "#00ff95";
-      ctx.strokeRect(
-        detection.searchRect.x,
-        detection.searchRect.y,
-        detection.searchRect.w,
-        detection.searchRect.h
-      );
-      ctx.fillStyle = detection.usedFallback ? "#ff9f43" : "#00ff95";
-      ctx.beginPath();
-      ctx.arc(detection.point.x, detection.point.y, 4, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  });
 
   const roiOverlayUrl = drawDataUrl(rectified.image, (ctx) => {
     const drawLabel = (label: string, region: BubbleRegion, color: string) => {
@@ -318,6 +363,68 @@ export const buildVisualParsingSteps = async (
     }
   });
 
+  onStage?.("Rendering detailed read-area map...");
+  const rectifiedThreshold = buildThresholdArtifacts(rectified.image);
+  const readAreasOverlayUrl = drawDataUrl(rectified.image, (ctx) => {
+    const drawBubble = (region: BubbleRegion, activeThreshold = 0.18) => {
+      const shade = shadeScoreFromMask(
+        rectifiedThreshold.thresholdMask,
+        rectified.image.width,
+        rectified.image.height,
+        region
+      );
+      const rect = normalizeRect(region, rectified.image.width, rectified.image.height);
+      const active = shade >= activeThreshold;
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = active ? "#12ff8b" : "rgba(255,255,255,0.28)";
+      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+      if (active) {
+        ctx.fillStyle = "rgba(18,255,139,0.2)";
+        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      }
+    };
+
+    const drawOuter = (label: string, region: BubbleRegion) => {
+      const rect = normalizeRect(region, rectified.image.width, rectified.image.height);
+      ctx.strokeStyle = "#ff4747";
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.fillStyle = "#ff4747";
+      ctx.font = "12px Arial";
+      ctx.fillText(label, rect.x + 4, rect.y - 6);
+    };
+
+    for (const box of roiBoxes) {
+      drawOuter(box.id, { x: box.x, y: box.y, w: box.w, h: box.h });
+    }
+
+    for (const column of template.studentId.columns) {
+      for (const bubble of column) {
+        drawBubble(bubble);
+      }
+    }
+    for (const column of template.examCode.columns) {
+      for (const bubble of column) {
+        drawBubble(bubble);
+      }
+    }
+    for (const bubble of Object.values(template.examSet.choices)) {
+      drawBubble(bubble);
+    }
+    for (const answer of template.answers) {
+      drawBubble(answer.choices.A);
+      drawBubble(answer.choices.B);
+      drawBubble(answer.choices.C);
+      drawBubble(answer.choices.D);
+      if (answer.question % 5 === 1) {
+        const labelRect = normalizeRect(answer.choices.A, rectified.image.width, rectified.image.height);
+        ctx.fillStyle = "rgba(255,255,255,0.72)";
+        ctx.font = "10px Arial";
+        ctx.fillText(`${answer.question}`, Math.max(2, labelRect.x - 14), labelRect.y + 10);
+      }
+    }
+  });
+
   onStage?.("Compiling visual step list...");
   return [
     {
@@ -342,16 +449,22 @@ export const buildVisualParsingSteps = async (
     },
     {
       id: "corners",
-      title: "Step 1: Corner marker detection",
+      title: "Step 1: Corner search regions",
       description:
-        "Green boxes are expanded search windows. Dots are detected marker centers (orange means fallback center).",
-      imageDataUrl: cornerOverlayUrl,
+        "Drag-adjusted corner search windows. These exact regions are used for centroid lookup.",
+      imageDataUrl: cornerWindowOverlayUrl,
       baseImageDataUrl: normalizedImageDataUrl,
       cornerWindows
     },
     {
+      id: "corner-centroids",
+      title: "Step 2: Corner centroid detection",
+      description: `Centroids are computed from dark pixels inside each selected region (${cornerCentroidFound}/4 found). Missing centroid means the region needs adjustment.`,
+      imageDataUrl: cornerCentroidOverlayUrl
+    },
+    {
       id: "rectified",
-      title: "Step 2: Perspective transformed sheet",
+      title: "Step 3: Perspective transformed sheet",
       description: rectified.warped
         ? "Sheet was straightened using detected corner positions."
         : "Perspective transform fallback used original normalized image.",
@@ -359,12 +472,19 @@ export const buildVisualParsingSteps = async (
     },
     {
       id: "regions",
-      title: "Step 3: Region-of-interest map",
+      title: "Step 4: Region-of-interest map",
       description:
         "Student ID, Exam Code, Exam Set, and 3 answer columns highlighted for extraction on transformed sheet.",
       imageDataUrl: roiOverlayUrl,
       baseImageDataUrl: rectifiedImageDataUrl,
       roiBoxes
+    },
+    {
+      id: "read-areas",
+      title: "Step 5: Detailed OMR read areas",
+      description:
+        "Detailed bubble-by-bubble map of every area used during OMR scoring. Green boxes indicate darker detected marks.",
+      imageDataUrl: readAreasOverlayUrl
     }
   ];
 };
