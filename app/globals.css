@@ -209,31 +209,6 @@ pre {
   z-index: 2;
 }
 
-.region-grid-overlay {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 1;
-}
-
-.region-grid-line {
-  position: absolute;
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 0 1px rgba(0, 0, 0, 0.85);
-}
-
-.region-grid-line-v {
-  top: 0;
-  bottom: 0;
-  width: 1.5px;
-}
-
-.region-grid-line-h {
-  left: 0;
-  right: 0;
-  height: 1.5px;
-}
-
 .region-move-hitbox {
   position: absolute;
   inset: 0;
