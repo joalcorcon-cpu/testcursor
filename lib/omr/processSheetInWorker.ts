@@ -5,11 +5,12 @@ type WorkerMessage =
   | { type: "result"; result: OMRResultJson }
   | { type: "error"; message: string };
 
-const WORKER_TIMEOUT_MS = 20000;
+const WORKER_TIMEOUT_MS = 60000;
 
 export const processSheetFileInWorker = async (
-  fileBuffer: ArrayBuffer,
-  mimeType: string,
+  imageRgbaBuffer: ArrayBuffer,
+  width: number,
+  height: number,
   template: OMRTemplate,
   onProgress?: (stage: string) => void,
   signal?: AbortSignal
@@ -74,11 +75,12 @@ export const processSheetFileInWorker = async (
     worker.postMessage(
       {
         type: "scan",
-        fileBuffer,
-        mimeType,
+        imageRgbaBuffer,
+        width,
+        height,
         template
       },
-      [fileBuffer]
+      [imageRgbaBuffer]
     );
   });
 };

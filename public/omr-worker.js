@@ -1,7 +1,6 @@
 const OPENCV_SCRIPT_URL = "/opencv.js";
-const OPENCV_READY_TIMEOUT_MS = 25000;
-const MAX_PROCESSING_DIMENSION = 800;
-const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+const OPENCV_READY_TIMEOUT_MS = 60000;
+const MAX_RGBA_BYTES = 25 * 1024 * 1024;
 
 let cvReadyPromise = null;
 
@@ -167,22 +166,20 @@ const scoreAnswer = (cv, thresholded, answerItem) => {
   };
 };
 
-const makeThresholdedSheet = async (cv, bitmap) => {
-  const longestSide = Math.max(bitmap.width, bitmap.height);
-  const scale =
-    longestSide > MAX_PROCESSING_DIMENSION ? MAX_PROCESSING_DIMENSION / longestSide : 1;
-  const width = Math.max(1, Math.round(bitmap.width * scale));
-  const height = Math.max(1, Math.round(bitmap.height * scale));
-
-  const canvas = new OffscreenCanvas(width, height);
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    throw new Error("Unable to initialize OffscreenCanvas context.");
+const makeThresholdedSheet = (cv, imageRgbaBuffer, width, height) => {
+  const rgba = new Uint8ClampedArray(imageRgbaBuffer);
+  let imageData;
+  if (typeof ImageData === "function") {
+    imageData = new ImageData(rgba, width, height);
+  } else {
+    const canvas = new OffscreenCanvas(width, height);
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Unable to create image data for preprocessing.");
+    }
+    imageData = context.createImageData(width, height);
+    imageData.data.set(rgba);
   }
-  ctx.drawImage(bitmap, 0, 0, width, height);
-  bitmap.close();
-
-  const imageData = ctx.getImageData(0, 0, width, height);
   const src = cv.matFromImageData(imageData);
   const gray = new cv.Mat();
   const blurred = new cv.Mat();
@@ -255,24 +252,22 @@ const postProgress = (stage) => {
   self.postMessage({ type: "progress", stage });
 };
 
-const runScan = async ({ fileBuffer, mimeType, template }) => {
-  if (!(fileBuffer instanceof ArrayBuffer)) {
+const runScan = async ({ imageRgbaBuffer, width, height, template }) => {
+  if (!(imageRgbaBuffer instanceof ArrayBuffer)) {
     throw new Error("Invalid scan payload.");
   }
-
-  if (fileBuffer.byteLength > MAX_UPLOAD_BYTES) {
-    throw new Error("Image file is too large. Please upload an image smaller than 20MB.");
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
+    throw new Error("Invalid image dimensions.");
+  }
+  if (imageRgbaBuffer.byteLength > MAX_RGBA_BYTES) {
+    throw new Error("Normalized image payload is too large to process.");
   }
 
   postProgress("Loading OpenCV runtime...");
   const cv = await loadOpenCv();
 
-  postProgress("Decoding image...");
-  const blob = new Blob([fileBuffer], { type: mimeType || "image/jpeg" });
-  const bitmap = await createImageBitmap(blob);
-
   postProgress("Preprocessing image...");
-  const { gray, binary } = await makeThresholdedSheet(cv, bitmap);
+  const { gray, binary } = makeThresholdedSheet(cv, imageRgbaBuffer, width, height);
 
   postProgress("Aligning sheet...");
   const rectified = rectifySheet(cv, gray, binary, template);

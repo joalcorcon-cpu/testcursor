@@ -81,7 +81,7 @@ No raw image blobs are stored in Supabase by default.
 - Large photos are downscaled (max side ~800px) before processing to keep browser scans responsive.
 - OpenCV runtime loading now has a timeout guard to avoid indefinite scan hangs.
 - OMR scanning runs in a Web Worker so the UI stays responsive while processing.
-- If worker initialization fails/times out, the app automatically falls back to compatibility scan mode.
+- If worker initialization fails/times out, the scan stops with an explicit error (no blocking main-thread fallback).
 - Active scans can be cancelled from the upload panel.
 - Uploaded photos are pre-validated and normalized to standard JPEG before scan to reduce decode incompatibilities.
 - OpenCV runtime is served locally (`/public/opencv.js`) so worker loading is same-origin and more reliable.
