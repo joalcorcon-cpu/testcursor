@@ -131,6 +131,24 @@ const roiGridSpec: Record<RoiBoxVisual["id"], { rows: number; cols: number }> = 
   answersCol3: { rows: 30, cols: 4 }
 };
 
+const gridBackgroundStyle = (rows: number, cols: number): string | undefined => {
+  if (rows <= 1 && cols <= 1) {
+    return undefined;
+  }
+  const layers: string[] = [];
+  if (cols > 1) {
+    layers.push(
+      `repeating-linear-gradient(to right, rgba(255,255,255,0.72) 0 1.5px, transparent 1.5px calc(100% / ${cols}))`
+    );
+  }
+  if (rows > 1) {
+    layers.push(
+      `repeating-linear-gradient(to bottom, rgba(255,255,255,0.72) 0 1.5px, transparent 1.5px calc(100% / ${rows}))`
+    );
+  }
+  return layers.join(", ");
+};
+
 const applyDragToRect = (
   rect: { x: number; y: number; w: number; h: number },
   mode: DragMode,
@@ -537,27 +555,12 @@ function RoiBoxEditor({
               left: `${box.x * 100}%`,
               top: `${box.y * 100}%`,
               width: `${box.w * 100}%`,
-              height: `${box.h * 100}%`
+              height: `${box.h * 100}%`,
+              backgroundImage: gridBackgroundStyle(roiGridSpec[box.id].rows, roiGridSpec[box.id].cols)
             }}
           >
             <span className="corner-window-label">{labelMap[box.id]}</span>
             <span className="corner-window-dot" />
-            <div className="region-grid-overlay" aria-hidden="true">
-              {Array.from({ length: Math.max(0, roiGridSpec[box.id].cols - 1) }, (_, index) => (
-                <span
-                  key={`v-${box.id}-${index}`}
-                  className="region-grid-line region-grid-line-v"
-                  style={{ left: `${((index + 1) / roiGridSpec[box.id].cols) * 100}%` }}
-                />
-              ))}
-              {Array.from({ length: Math.max(0, roiGridSpec[box.id].rows - 1) }, (_, index) => (
-                <span
-                  key={`h-${box.id}-${index}`}
-                  className="region-grid-line region-grid-line-h"
-                  style={{ top: `${((index + 1) / roiGridSpec[box.id].rows) * 100}%` }}
-                />
-              ))}
-            </div>
             <button
               className="region-move-hitbox"
               onPointerDown={(event) => beginDrag(event, box, "move")}
