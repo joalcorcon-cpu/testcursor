@@ -485,16 +485,18 @@ export function VisualParsingDialog({
   onClose
 }: VisualParsingDialogProps) {
   const [pageIndex, setPageIndex] = useState(0);
-  const wizardPages = ["corners", "transform", "roi"] as const;
+  const wizardPages = ["corners", "centroids", "transform", "roi", "readAreas"] as const;
   const cornerStep = useMemo(
     () => steps.find((step) => step.id === "corners" && step.cornerWindows?.length),
     [steps]
   );
+  const centroidStep = useMemo(() => steps.find((step) => step.id === "corner-centroids"), [steps]);
   const transformStep = useMemo(() => steps.find((step) => step.id === "rectified"), [steps]);
   const roiStep = useMemo(
     () => steps.find((step) => step.id === "regions" && step.roiBoxes?.length),
     [steps]
   );
+  const readAreasStep = useMemo(() => steps.find((step) => step.id === "read-areas"), [steps]);
 
   if (!isOpen) {
     return null;
@@ -509,9 +511,13 @@ export function VisualParsingDialog({
   const pageTitle =
     currentPage === "corners"
       ? "Page 1: Corner Regions"
-      : currentPage === "transform"
-        ? "Page 2: Perspective Transform"
-        : "Page 3: ROI Selection";
+      : currentPage === "centroids"
+        ? "Page 2: Corner Centroids"
+        : currentPage === "transform"
+          ? "Page 3: Perspective Transform"
+          : currentPage === "roi"
+            ? "Page 4: ROI Selection"
+            : "Page 5: Detailed Read Areas";
 
   const canGoBack = pageIndex > 0;
   const canGoNext = pageIndex < wizardPages.length - 1;
@@ -563,6 +569,19 @@ export function VisualParsingDialog({
             )
           ) : null}
 
+          {!loading && !error && currentPage === "centroids" ? (
+            centroidStep ? (
+              <article key={centroidStep.id} className="step-card wizard-image-page">
+                <h3>{centroidStep.title}</h3>
+                <p className="subtle-text">{centroidStep.description}</p>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={centroidStep.imageDataUrl} alt={centroidStep.title} />
+              </article>
+            ) : (
+              <p className="subtle-text">Corner centroid step is not available.</p>
+            )
+          ) : null}
+
           {!loading && !error && currentPage === "roi" ? (
             roiStep?.baseImageDataUrl && (roiStep.roiBoxes?.length ?? 0) > 0 ? (
               <RoiBoxEditor
@@ -573,6 +592,19 @@ export function VisualParsingDialog({
               />
             ) : (
               <p className="subtle-text">ROI step is not available for this image.</p>
+            )
+          ) : null}
+
+          {!loading && !error && currentPage === "readAreas" ? (
+            readAreasStep ? (
+              <article key={readAreasStep.id} className="step-card wizard-image-page">
+                <h3>{readAreasStep.title}</h3>
+                <p className="subtle-text">{readAreasStep.description}</p>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={readAreasStep.imageDataUrl} alt={readAreasStep.title} />
+              </article>
+            ) : (
+              <p className="subtle-text">Detailed read-area map is not available.</p>
             )
           ) : null}
         </div>

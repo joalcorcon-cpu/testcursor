@@ -169,6 +169,13 @@ const detectCornerPoint = (cv, thresholded, marker, customSearchRegion) => {
   roi.delete();
 
   if (count < rect.width * rect.height * 0.01) {
+    if (customSearchRegion) {
+      return {
+        x: NaN,
+        y: NaN,
+        found: false
+      };
+    }
     return {
       x: rect.x + rect.width / 2,
       y: rect.y + rect.height / 2,
