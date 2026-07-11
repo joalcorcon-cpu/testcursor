@@ -1,0 +1,337 @@
+const OPENCV_SCRIPT_URL = "https://docs.opencv.org/4.x/opencv.js";
+const OPENCV_READY_TIMEOUT_MS = 25000;
+const MAX_PROCESSING_DIMENSION = 800;
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+
+let cvReadyPromise = null;
+
+const isCvReady = () =>
+  Boolean(self.cv && typeof self.cv.Mat === "function" && typeof self.cv.matFromImageData === "function");
+
+const loadOpenCv = async () => {
+  if (cvReadyPromise) {
+    return cvReadyPromise;
+  }
+
+  cvReadyPromise = new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    const rejectTimeout = () => {
+      reject(new Error("OpenCV runtime initialization timed out in worker."));
+    };
+
+    const pollReady = () => {
+      if (isCvReady()) {
+        resolve(self.cv);
+        return;
+      }
+      if (Date.now() - startedAt > OPENCV_READY_TIMEOUT_MS) {
+        rejectTimeout();
+        return;
+      }
+      setTimeout(pollReady, 100);
+    };
+
+    try {
+      importScripts(OPENCV_SCRIPT_URL);
+    } catch (error) {
+      reject(new Error("Unable to load OpenCV.js in worker."));
+      return;
+    }
+
+    if (isCvReady()) {
+      resolve(self.cv);
+      return;
+    }
+
+    const cvAny = self.cv;
+    if (cvAny && typeof cvAny === "object") {
+      const previous = cvAny.onRuntimeInitialized;
+      cvAny.onRuntimeInitialized = () => {
+        if (typeof previous === "function") {
+          previous();
+        }
+        if (isCvReady()) {
+          resolve(self.cv);
+        }
+      };
+    }
+    pollReady();
+  }).catch((error) => {
+    cvReadyPromise = null;
+    throw error;
+  });
+
+  return cvReadyPromise;
+};
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+const normalizeRegion = (region, width, height) => {
+  const x = clamp(Math.round(region.x * width), 0, width - 1);
+  const y = clamp(Math.round(region.y * height), 0, height - 1);
+  const w = clamp(Math.round(region.w * width), 1, width - x);
+  const h = clamp(Math.round(region.h * height), 1, height - y);
+  return { x, y, width: w, height: h };
+};
+
+const regionShadeScore = (cv, thresholded, region) => {
+  const rect = normalizeRegion(region, thresholded.cols, thresholded.rows);
+  const roi = thresholded.roi(rect);
+  const ink = cv.countNonZero(roi);
+  roi.delete();
+  const total = rect.width * rect.height;
+  return total > 0 ? ink / total : 0;
+};
+
+const computeChoiceScores = (cv, thresholded, choices) => ({
+  A: regionShadeScore(cv, thresholded, choices.A),
+  B: regionShadeScore(cv, thresholded, choices.B),
+  C: regionShadeScore(cv, thresholded, choices.C),
+  D: regionShadeScore(cv, thresholded, choices.D)
+});
+
+const pickSelections = (scores, minMarkThreshold = 0.18, ambiguityGap = 0.03) => {
+  const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+  const top = sorted[0];
+  const second = sorted[1];
+  const selected = sorted
+    .filter((entry) => entry[1] >= minMarkThreshold && top[1] - entry[1] <= ambiguityGap)
+    .map((entry) => entry[0]);
+  const confidence = clamp(top[1] - second[1], 0, 1);
+  return {
+    selected,
+    confidence,
+    ambiguous: selected.length !== 1
+  };
+};
+
+const detectCornerPoint = (thresholded, marker) => {
+  const rect = normalizeRegion(marker, thresholded.cols, thresholded.rows);
+  const roi = thresholded.roi(rect);
+  let count = 0;
+  let sumX = 0;
+  let sumY = 0;
+
+  for (let y = 0; y < rect.height; y += 1) {
+    for (let x = 0; x < rect.width; x += 1) {
+      if (roi.ucharPtr(y, x)[0] > 0) {
+        count += 1;
+        sumX += x;
+        sumY += y;
+      }
+    }
+  }
+
+  roi.delete();
+
+  if (count < rect.width * rect.height * 0.01) {
+    return {
+      x: (marker.x + marker.w / 2) * thresholded.cols,
+      y: (marker.y + marker.h / 2) * thresholded.rows
+    };
+  }
+
+  return {
+    x: rect.x + sumX / count,
+    y: rect.y + sumY / count
+  };
+};
+
+const scoreDigitColumns = (cv, thresholded, columns) => {
+  const shadeScores = columns.map((column) =>
+    column.map((bubble) => regionShadeScore(cv, thresholded, bubble))
+  );
+  const detected = shadeScores.map((scores) => {
+    let bestIndex = 0;
+    let bestScore = -1;
+    for (let index = 0; index < scores.length; index += 1) {
+      if (scores[index] > bestScore) {
+        bestScore = scores[index];
+        bestIndex = index;
+      }
+    }
+    return bestIndex;
+  });
+  return { detected, shadeScores };
+};
+
+const scoreAnswer = (cv, thresholded, answerItem) => {
+  const shadeScores = computeChoiceScores(cv, thresholded, answerItem.choices);
+  const decision = pickSelections(shadeScores);
+  return {
+    q: answerItem.question,
+    selected: decision.selected,
+    shadeScores,
+    confidence: decision.confidence,
+    ambiguous: decision.ambiguous
+  };
+};
+
+const makeThresholdedSheet = async (cv, bitmap) => {
+  const longestSide = Math.max(bitmap.width, bitmap.height);
+  const scale =
+    longestSide > MAX_PROCESSING_DIMENSION ? MAX_PROCESSING_DIMENSION / longestSide : 1;
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+
+  const canvas = new OffscreenCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("Unable to initialize OffscreenCanvas context.");
+  }
+  ctx.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const src = cv.matFromImageData(imageData);
+  const gray = new cv.Mat();
+  const blurred = new cv.Mat();
+  const binary = new cv.Mat();
+
+  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+  cv.GaussianBlur(gray, blurred, new cv.Size(3, 3), 0, 0);
+  cv.threshold(blurred, binary, 0, 255, cv.THRESH_BINARY_INV | cv.THRESH_OTSU);
+
+  src.delete();
+  blurred.delete();
+
+  return { gray, binary };
+};
+
+const rectifySheet = (cv, gray, thresholded, template) => {
+  const orderedMarkers = [
+    template.cornerMarkers.find((marker) => marker.id === "tl"),
+    template.cornerMarkers.find((marker) => marker.id === "tr"),
+    template.cornerMarkers.find((marker) => marker.id === "br"),
+    template.cornerMarkers.find((marker) => marker.id === "bl")
+  ].filter(Boolean);
+
+  if (orderedMarkers.length !== 4) {
+    return { thresholded, warped: false };
+  }
+
+  const corners = orderedMarkers.map((marker) => detectCornerPoint(thresholded, marker));
+  const srcPoints = cv.matFromArray(
+    4,
+    1,
+    cv.CV_32FC2,
+    corners.flatMap((corner) => [corner.x, corner.y])
+  );
+  const dstPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+    0,
+    0,
+    thresholded.cols - 1,
+    0,
+    thresholded.cols - 1,
+    thresholded.rows - 1,
+    0,
+    thresholded.rows - 1
+  ]);
+
+  const transform = cv.getPerspectiveTransform(srcPoints, dstPoints);
+  const warpedGray = new cv.Mat();
+  cv.warpPerspective(
+    gray,
+    warpedGray,
+    transform,
+    new cv.Size(thresholded.cols, thresholded.rows),
+    cv.INTER_LINEAR,
+    cv.BORDER_CONSTANT
+  );
+
+  const warpedBinary = new cv.Mat();
+  cv.threshold(warpedGray, warpedBinary, 0, 255, cv.THRESH_BINARY_INV | cv.THRESH_OTSU);
+
+  srcPoints.delete();
+  dstPoints.delete();
+  transform.delete();
+  warpedGray.delete();
+  thresholded.delete();
+
+  return { thresholded: warpedBinary, warped: true };
+};
+
+const postProgress = (stage) => {
+  self.postMessage({ type: "progress", stage });
+};
+
+const runScan = async ({ fileBuffer, mimeType, template }) => {
+  if (!(fileBuffer instanceof ArrayBuffer)) {
+    throw new Error("Invalid scan payload.");
+  }
+
+  if (fileBuffer.byteLength > MAX_UPLOAD_BYTES) {
+    throw new Error("Image file is too large. Please upload an image smaller than 20MB.");
+  }
+
+  postProgress("Loading OpenCV runtime...");
+  const cv = await loadOpenCv();
+
+  postProgress("Decoding image...");
+  const blob = new Blob([fileBuffer], { type: mimeType || "image/jpeg" });
+  const bitmap = await createImageBitmap(blob);
+
+  postProgress("Preprocessing image...");
+  const { gray, binary } = await makeThresholdedSheet(cv, bitmap);
+
+  postProgress("Aligning sheet...");
+  const rectified = rectifySheet(cv, gray, binary, template);
+  gray.delete();
+
+  const thresholded = rectified.thresholded;
+  try {
+    postProgress("Scoring ID and exam fields...");
+    const studentId = scoreDigitColumns(cv, thresholded, template.studentId.columns);
+    const examCode = scoreDigitColumns(cv, thresholded, template.examCode.columns);
+    const examSetScores = computeChoiceScores(cv, thresholded, template.examSet.choices);
+    const examSetDecision = pickSelections(examSetScores);
+
+    const answers = [];
+    postProgress("Scoring answers...");
+    for (let index = 0; index < template.answers.length; index += 1) {
+      answers.push(scoreAnswer(cv, thresholded, template.answers[index]));
+      if ((index + 1) % 20 === 0) {
+        postProgress(`Scoring answers (${index + 1}/${template.answers.length})...`);
+      }
+    }
+
+    return {
+      templateId: template.id,
+      student: {
+        studentId,
+        examCode,
+        examSet: {
+          selected: examSetDecision.selected,
+          shadeScores: examSetScores,
+          confidence: examSetDecision.confidence,
+          ambiguous: examSetDecision.ambiguous
+        }
+      },
+      answers,
+      pipeline: {
+        warped: rectified.warped,
+        width: thresholded.cols,
+        height: thresholded.rows
+      }
+    };
+  } finally {
+    thresholded.delete();
+  }
+};
+
+self.onmessage = async (event) => {
+  const { data } = event;
+  if (!data || data.type !== "scan") {
+    return;
+  }
+
+  try {
+    const result = await runScan(data);
+    self.postMessage({ type: "result", result });
+  } catch (error) {
+    self.postMessage({
+      type: "error",
+      message: error instanceof Error ? error.message : "Scan failed in worker."
+    });
+  }
+};

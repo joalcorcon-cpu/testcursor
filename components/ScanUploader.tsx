@@ -4,6 +4,7 @@ interface ScanUploaderProps {
   sourceName: string;
   uploader: string;
   loading: boolean;
+  stage: string | null;
   onSourceNameChange: (value: string) => void;
   onUploaderChange: (value: string) => void;
   onFileChange: (file: File | null) => void;
@@ -14,6 +15,7 @@ export function ScanUploader({
   sourceName,
   uploader,
   loading,
+  stage,
   onSourceNameChange,
   onUploaderChange,
   onFileChange,
@@ -52,6 +54,7 @@ export function ScanUploader({
           {loading ? "Scanning..." : "Run OMR Scan"}
         </button>
       </div>
+      {loading && stage ? <p className="subtle-text">{stage}</p> : null}
     </section>
   );
 }

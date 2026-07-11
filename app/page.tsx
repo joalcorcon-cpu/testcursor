@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { ScanUploader } from "@/components/ScanUploader";
 import { ResultsReview } from "@/components/ResultsReview";
-import { processSheetFile } from "@/lib/omr/processSheet";
+import { processSheetFileInWorker } from "@/lib/omr/processSheetInWorker";
+import { defaultSheetTemplate } from "@/lib/templates/defaultSheetTemplate";
 import type { OMRResultJson, ScanRecord } from "@/types/omr";
 
 export default function HomePage() {
@@ -11,6 +12,7 @@ export default function HomePage() {
   const [sourceName, setSourceName] = useState("");
   const [uploader, setUploader] = useState("");
   const [loading, setLoading] = useState(false);
+  const [scanStage, setScanStage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<OMRResultJson | null>(null);
@@ -43,9 +45,14 @@ export default function HomePage() {
       return;
     }
     setLoading(true);
+    setScanStage("Starting scan worker...");
     setError(null);
     try {
-      const scanned = await processSheetFile(file);
+      const scanned = await processSheetFileInWorker(
+        file,
+        defaultSheetTemplate,
+        (stage) => setScanStage(stage)
+      );
       setResult(scanned);
       if (!sourceName) {
         setSourceName(file.name);
@@ -53,6 +60,7 @@ export default function HomePage() {
     } catch (scanError) {
       setError(scanError instanceof Error ? scanError.message : "Scan failed.");
     } finally {
+      setScanStage(null);
       setLoading(false);
     }
   };
@@ -98,6 +106,7 @@ export default function HomePage() {
           sourceName={sourceName}
           uploader={uploader}
           loading={loading}
+          stage={scanStage}
           onSourceNameChange={setSourceName}
           onUploaderChange={setUploader}
           onFileChange={setFile}
