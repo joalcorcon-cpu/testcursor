@@ -10,8 +10,12 @@ import { loadOpenCv } from "@/lib/omr/opencvLoader";
 import type { CvMat } from "@/lib/omr/opencvLoader";
 import type { CornerMarker, OMRResultJson } from "@/types/omr";
 
-const MAX_PROCESSING_DIMENSION = 1200;
+const MAX_PROCESSING_DIMENSION = 800;
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+const yieldToBrowser = () =>
+  new Promise<void>((resolve) => {
+    window.setTimeout(resolve, 0);
+  });
 
 const loadImageElement = (file: File) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
@@ -114,14 +118,12 @@ const rectifyWithCornerMarkers = (
     cv.BORDER_CONSTANT
   );
   const warpedBinary = new cv.Mat() as CvMat;
-  cv.adaptiveThreshold(
+  cv.threshold(
     warpedGray,
     warpedBinary,
+    0,
     255,
-    cv.ADAPTIVE_THRESH_GAUSSIAN_C,
-    cv.THRESH_BINARY_INV,
-    17,
-    5
+    cv.THRESH_BINARY_INV | cv.THRESH_OTSU
   );
 
   src.delete();
@@ -138,6 +140,7 @@ const rectifyWithCornerMarkers = (
 
 const toThresholdedMat = async (file: File): Promise<PreprocessedSheet> => {
   const cv = await loadOpenCv();
+  await yieldToBrowser();
   const image = await loadImageElement(file);
   const longestSide = Math.max(image.naturalWidth, image.naturalHeight);
   const scale =
@@ -154,26 +157,28 @@ const toThresholdedMat = async (file: File): Promise<PreprocessedSheet> => {
     throw new Error("Unable to initialize canvas context.");
   }
   ctx.drawImage(image, 0, 0, width, height);
+  await yieldToBrowser();
 
   const src = cv.imread(canvas);
   const gray = new cv.Mat() as CvMat;
   const blurred = new cv.Mat() as CvMat;
   const binary = new cv.Mat() as CvMat;
   cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-  cv.GaussianBlur(gray, blurred, { width: 5, height: 5 }, 0, 0);
-  cv.adaptiveThreshold(
+  await yieldToBrowser();
+  cv.GaussianBlur(gray, blurred, { width: 3, height: 3 }, 0, 0);
+  cv.threshold(
     blurred,
     binary,
+    0,
     255,
-    cv.ADAPTIVE_THRESH_GAUSSIAN_C,
-    cv.THRESH_BINARY_INV,
-    17,
-    5
+    cv.THRESH_BINARY_INV | cv.THRESH_OTSU
   );
   src.delete();
   blurred.delete();
+  await yieldToBrowser();
   const rectified = rectifyWithCornerMarkers(cv, gray, binary);
   gray.delete();
+  await yieldToBrowser();
   return rectified;
 };
 
@@ -210,11 +215,9 @@ export const processSheetFile = async (file: File): Promise<OMRResultJson> => {
     for (let index = 0; index < defaultSheetTemplate.answers.length; index += 1) {
       const item = defaultSheetTemplate.answers[index];
       answers.push(scoreAnswer(item.question, thresholded, item.choices));
-      if (index > 0 && index % 20 === 0) {
+      if (index > 0 && index % 12 === 0) {
         // Yield to the browser periodically to avoid long main-thread stalls.
-        await new Promise<void>((resolve) => {
-          window.setTimeout(resolve, 0);
-        });
+        await yieldToBrowser();
       }
     }
 

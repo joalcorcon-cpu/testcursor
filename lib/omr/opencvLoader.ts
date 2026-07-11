@@ -28,6 +28,13 @@ declare global {
         blockSize: number,
         c: number
       ) => void;
+      threshold: (
+        src: CvMat,
+        dst: CvMat,
+        thresh: number,
+        maxVal: number,
+        thresholdType: number
+      ) => number;
       getPerspectiveTransform: (src: CvMat, dst: CvMat) => CvMat;
       warpPerspective: (
         src: CvMat,
@@ -41,6 +48,7 @@ declare global {
       COLOR_RGBA2GRAY: number;
       ADAPTIVE_THRESH_GAUSSIAN_C: number;
       THRESH_BINARY_INV: number;
+      THRESH_OTSU: number;
       CV_32FC2: number;
       INTER_LINEAR: number;
       BORDER_CONSTANT: number;
