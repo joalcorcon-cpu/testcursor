@@ -1,4 +1,4 @@
-const OPENCV_SCRIPT_URL = "https://docs.opencv.org/4.x/opencv.js";
+const OPENCV_SCRIPT_URL = "/opencv.js";
 const OPENCV_READY_TIMEOUT_MS = 25000;
 const MAX_PROCESSING_DIMENSION = 800;
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;

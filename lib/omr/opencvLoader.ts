@@ -116,7 +116,7 @@ export const loadOpenCv = async (): Promise<typeof window.cv> => {
       };
 
       const script = document.createElement("script");
-      script.src = "https://docs.opencv.org/4.x/opencv.js";
+      script.src = "/opencv.js";
       script.async = true;
       script.onload = () => {
         if (isRuntimeReady()) {
