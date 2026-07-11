@@ -319,6 +319,225 @@ const shadeScoreFromMask = (
   return total > 0 ? dark / total : 0;
 };
 
+const roiLabelMap: Record<string, string> = {
+  studentId: "ID",
+  examCode: "CODE",
+  examSet: "SET",
+  answersCol1: "A1",
+  answersCol2: "A2",
+  answersCol3: "A3"
+};
+
+const buildRoiAndReadAreaArtifacts = (
+  rectifiedImage: ImageData,
+  template: OMRTemplate,
+  onStage?: (stage: string) => void
+) => {
+  const roiBoxes = deriveRoiBoxesFromTemplate(template);
+  const drawGrid = (
+    ctx: CanvasRenderingContext2D,
+    region: BubbleRegion,
+    cols: number,
+    rows: number
+  ) => {
+    const rect = normalizeRect(region, rectifiedImage.width, rectifiedImage.height);
+    ctx.strokeStyle = "rgba(0,255,149,0.5)";
+    ctx.lineWidth = 1.1;
+    for (let col = 1; col < cols; col += 1) {
+      const x = rect.x + (rect.w * col) / cols;
+      ctx.beginPath();
+      ctx.moveTo(x, rect.y);
+      ctx.lineTo(x, rect.y + rect.h);
+      ctx.stroke();
+    }
+    for (let row = 1; row < rows; row += 1) {
+      const y = rect.y + (rect.h * row) / rows;
+      ctx.beginPath();
+      ctx.moveTo(rect.x, y);
+      ctx.lineTo(rect.x + rect.w, y);
+      ctx.stroke();
+    }
+  };
+
+  const roiOverlayUrl = drawDataUrl(rectifiedImage, (ctx) => {
+    const drawLabel = (label: string, region: BubbleRegion) => {
+      const rect = normalizeRect(region, rectifiedImage.width, rectifiedImage.height);
+      ctx.strokeStyle = "#00ff95";
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.fillStyle = "#00ff95";
+      ctx.font = "14px Arial";
+      ctx.fillText(label, rect.x + 5, rect.y + 17);
+    };
+
+    const gridById: Record<string, { cols: number; rows: number }> = {
+      studentId: { rows: template.studentId.digits, cols: template.studentId.bubbleRows },
+      examCode: { rows: template.examCode.digits, cols: template.examCode.bubbleRows },
+      examSet: { rows: 1, cols: 4 },
+      answersCol1: { rows: 35, cols: 4 },
+      answersCol2: { rows: 35, cols: 4 },
+      answersCol3: { rows: 30, cols: 4 }
+    };
+
+    for (const box of roiBoxes) {
+      const spec = gridById[box.id];
+      if (spec) {
+        drawGrid(ctx, box, spec.cols, spec.rows);
+      }
+      drawLabel(roiLabelMap[box.id] ?? box.id, { x: box.x, y: box.y, w: box.w, h: box.h });
+    }
+  });
+
+  onStage?.("Rendering detailed read-area map...");
+  const rectifiedThreshold = buildThresholdArtifacts(rectifiedImage);
+  const readAreasOverlayUrl = drawDataUrl(rectifiedImage, (ctx) => {
+    const drawBubble = (region: BubbleRegion, activeThreshold = 0.18) => {
+      const shade = shadeScoreFromMask(
+        rectifiedThreshold.thresholdMask,
+        rectifiedImage.width,
+        rectifiedImage.height,
+        region
+      );
+      const rect = normalizeRect(region, rectifiedImage.width, rectifiedImage.height);
+      const active = shade >= activeThreshold;
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = active ? "#12ff8b" : "rgba(255,255,255,0.28)";
+      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+      if (active) {
+        ctx.fillStyle = "rgba(18,255,139,0.2)";
+        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      }
+    };
+
+    const drawOuter = (label: string, region: BubbleRegion, color: string) => {
+      const rect = normalizeRect(region, rectifiedImage.width, rectifiedImage.height);
+      ctx.strokeStyle = "rgba(0,0,0,0.75)";
+      ctx.lineWidth = 5;
+      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.fillStyle = color;
+      ctx.font = "12px Arial";
+      ctx.fillText(label, rect.x + 5, rect.y - 8);
+      const corners: Array<[number, number]> = [
+        [rect.x, rect.y],
+        [rect.x + rect.w, rect.y],
+        [rect.x + rect.w, rect.y + rect.h],
+        [rect.x, rect.y + rect.h]
+      ];
+      for (const [x, y] of corners) {
+        ctx.beginPath();
+        ctx.fillStyle = "rgba(0,0,0,0.8)";
+        ctx.arc(x, y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.fillStyle = color;
+        ctx.arc(x, y, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    };
+
+    const gridById: Record<string, { cols: number; rows: number }> = {
+      studentId: { rows: template.studentId.digits, cols: template.studentId.bubbleRows },
+      examCode: { rows: template.examCode.digits, cols: template.examCode.bubbleRows },
+      examSet: { rows: 1, cols: 4 },
+      answersCol1: { rows: 35, cols: 4 },
+      answersCol2: { rows: 35, cols: 4 },
+      answersCol3: { rows: 30, cols: 4 }
+    };
+    for (const box of roiBoxes) {
+      const spec = gridById[box.id];
+      if (spec) {
+        drawGrid(ctx, box, spec.cols, spec.rows);
+      }
+    }
+
+    for (const row of template.studentId.columns) {
+      for (const bubble of row) {
+        drawBubble(bubble);
+      }
+    }
+    for (const row of template.examCode.columns) {
+      for (const bubble of row) {
+        drawBubble(bubble);
+      }
+    }
+    for (const bubble of Object.values(template.examSet.choices)) {
+      drawBubble(bubble);
+    }
+    for (const answer of template.answers) {
+      drawBubble(answer.choices.A);
+      drawBubble(answer.choices.B);
+      drawBubble(answer.choices.C);
+      drawBubble(answer.choices.D);
+      if (answer.question % 5 === 1) {
+        const labelRect = normalizeRect(answer.choices.A, rectifiedImage.width, rectifiedImage.height);
+        ctx.fillStyle = "rgba(255,255,255,0.72)";
+        ctx.font = "10px Arial";
+        ctx.fillText(`${answer.question}`, Math.max(2, labelRect.x - 14), labelRect.y + 10);
+      }
+    }
+
+    for (const box of roiBoxes) {
+      drawOuter(
+        roiLabelMap[box.id] ?? box.id,
+        { x: box.x, y: box.y, w: box.w, h: box.h },
+        "#00ff95"
+      );
+    }
+  });
+
+  return { roiBoxes, roiOverlayUrl, readAreasOverlayUrl };
+};
+
+const dataUrlToImageData = async (dataUrl: string): Promise<ImageData> => {
+  const image = new Image();
+  image.src = dataUrl;
+  await image.decode();
+  const width = Math.max(1, image.naturalWidth || image.width);
+  const height = Math.max(1, image.naturalHeight || image.height);
+  const canvas = toCanvas(width, height);
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Unable to decode rectified image for ROI rebuild.");
+  }
+  context.drawImage(image, 0, 0, width, height);
+  return context.getImageData(0, 0, width, height);
+};
+
+export const buildRoiReadAreaStepsFromRectifiedDataUrl = async (
+  rectifiedImageDataUrl: string,
+  template: OMRTemplate,
+  onStage?: (stage: string) => void
+): Promise<{ regionsStep: VisualParseStep; readAreasStep: VisualParseStep }> => {
+  onStage?.("Reusing rectified image for ROI update...");
+  const rectifiedImage = await dataUrlToImageData(rectifiedImageDataUrl);
+  const { roiBoxes, roiOverlayUrl, readAreasOverlayUrl } = buildRoiAndReadAreaArtifacts(
+    rectifiedImage,
+    template,
+    onStage
+  );
+  return {
+    regionsStep: {
+      id: "regions",
+      title: "Step 4: Region-of-interest map",
+      description:
+        "Student ID, Exam Code, Exam Set, and 3 answer columns highlighted for extraction on transformed sheet.",
+      imageDataUrl: roiOverlayUrl,
+      baseImageDataUrl: rectifiedImageDataUrl,
+      roiBoxes
+    },
+    readAreasStep: {
+      id: "read-areas",
+      title: "Step 5: Detailed OMR read areas",
+      description:
+        "Detailed bubble-by-bubble map of every area used during OMR scoring. ROI outlines and labels mirror the Step 4 draggable boxes; green bubble highlights indicate darker detected marks.",
+      imageDataUrl: readAreasOverlayUrl
+    }
+  };
+};
+
 export const buildVisualParsingSteps = async (
   file: File,
   template: OMRTemplate,
@@ -352,7 +571,6 @@ export const buildVisualParsingSteps = async (
   onStage?.("Computing threshold map...");
   const thresholdArtifacts = buildThresholdArtifacts(normalizedImage);
   const threshold = thresholdArtifacts.threshold;
-  const thresholdMask = thresholdArtifacts.thresholdMask;
   const thresholdImage = thresholdArtifacts.thresholdImage;
   const darkPixelImage = buildDarkPixelImage(
     thresholdArtifacts.grayscale,
@@ -504,183 +722,11 @@ export const buildVisualParsingSteps = async (
   const rectifiedImageDataUrl = toDataUrl(rectified.image);
 
   onStage?.("Drawing region overlays...");
-  const roiBoxes = deriveRoiBoxesFromTemplate(template);
-
-  const roiOverlayUrl = drawDataUrl(rectified.image, (ctx) => {
-    const drawLabel = (label: string, region: BubbleRegion, color: string) => {
-      const rect = normalizeRect(region, rectified.image.width, rectified.image.height);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-      ctx.fillStyle = color;
-      ctx.font = "16px Arial";
-      ctx.fillText(label, rect.x + 6, rect.y + 18);
-    };
-    const roiLabelMap: Record<string, string> = {
-      studentId: "ID",
-      examCode: "CODE",
-      examSet: "SET",
-      answersCol1: "A1",
-      answersCol2: "A2",
-      answersCol3: "A3"
-    };
-    for (const box of roiBoxes) {
-      drawLabel(
-        roiLabelMap[box.id] ?? box.id,
-        { x: box.x, y: box.y, w: box.w, h: box.h },
-        roiColorMap[box.id] ?? "#ffffff"
-      );
-    }
-  });
-
-  onStage?.("Rendering detailed read-area map...");
-  const rectifiedThreshold = buildThresholdArtifacts(rectified.image);
-  const readAreasOverlayUrl = drawDataUrl(rectified.image, (ctx) => {
-    const drawBubble = (region: BubbleRegion, activeThreshold = 0.18) => {
-      const shade = shadeScoreFromMask(
-        rectifiedThreshold.thresholdMask,
-        rectified.image.width,
-        rectified.image.height,
-        region
-      );
-      const rect = normalizeRect(region, rectified.image.width, rectified.image.height);
-      const active = shade >= activeThreshold;
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = active ? "#12ff8b" : "rgba(255,255,255,0.28)";
-      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-      if (active) {
-        ctx.fillStyle = "rgba(18,255,139,0.2)";
-        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-      }
-    };
-
-    const drawOuter = (label: string, region: BubbleRegion, color: string) => {
-      const rect = normalizeRect(region, rectified.image.width, rectified.image.height);
-      // Draw a dark under-stroke first to keep ROI edges visible over dense bubbles.
-      ctx.strokeStyle = "rgba(0,0,0,0.75)";
-      ctx.lineWidth = 5;
-      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 3;
-      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-      ctx.fillStyle = color;
-      ctx.font = "12px Arial";
-      ctx.fillText(label, rect.x + 5, rect.y - 8);
-      const corners: Array<[number, number]> = [
-        [rect.x, rect.y],
-        [rect.x + rect.w, rect.y],
-        [rect.x + rect.w, rect.y + rect.h],
-        [rect.x, rect.y + rect.h]
-      ];
-      for (const [x, y] of corners) {
-        ctx.beginPath();
-        ctx.fillStyle = "rgba(0,0,0,0.8)";
-        ctx.arc(x, y, 5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.fillStyle = color;
-        ctx.arc(x, y, 3.2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    };
-
-    const drawGrid = (region: BubbleRegion, cols: number, rows: number) => {
-      const rect = normalizeRect(region, rectified.image.width, rectified.image.height);
-      ctx.strokeStyle = "rgba(0,255,149,0.55)";
-      ctx.lineWidth = 1.2;
-      for (let col = 1; col < cols; col += 1) {
-        const x = rect.x + (rect.w * col) / cols;
-        ctx.beginPath();
-        ctx.moveTo(x, rect.y);
-        ctx.lineTo(x, rect.y + rect.h);
-        ctx.stroke();
-      }
-      for (let row = 1; row < rows; row += 1) {
-        const y = rect.y + (rect.h * row) / rows;
-        ctx.beginPath();
-        ctx.moveTo(rect.x, y);
-        ctx.lineTo(rect.x + rect.w, y);
-        ctx.stroke();
-      }
-    };
-
-    const roiColorMap: Record<string, string> = {
-      studentId: "#55d6ff",
-      examCode: "#ff9f43",
-      examSet: "#7bed9f",
-      answersCol1: "#ff6b81",
-      answersCol2: "#ffa502",
-      answersCol3: "#70a1ff"
-    };
-    const roiLabelMap: Record<string, string> = {
-      studentId: "Student ID",
-      examCode: "Exam Code",
-      examSet: "Exam Set",
-      answersCol1: "Answers 1-35",
-      answersCol2: "Answers 36-70",
-      answersCol3: "Answers 71-100"
-    };
-
-    const roiById = new Map(roiBoxes.map((box) => [box.id, box]));
-    const studentIdBox = roiById.get("studentId");
-    if (studentIdBox) {
-      drawGrid(studentIdBox, template.studentId.bubbleRows, template.studentId.digits);
-    }
-    const examCodeBox = roiById.get("examCode");
-    if (examCodeBox) {
-      drawGrid(examCodeBox, template.examCode.bubbleRows, template.examCode.digits);
-    }
-    const examSetBox = roiById.get("examSet");
-    if (examSetBox) {
-      drawGrid(examSetBox, 4, 1);
-    }
-    const answersCol1Box = roiById.get("answersCol1");
-    if (answersCol1Box) {
-      drawGrid(answersCol1Box, 4, 35);
-    }
-    const answersCol2Box = roiById.get("answersCol2");
-    if (answersCol2Box) {
-      drawGrid(answersCol2Box, 4, 35);
-    }
-    const answersCol3Box = roiById.get("answersCol3");
-    if (answersCol3Box) {
-      drawGrid(answersCol3Box, 4, 30);
-    }
-
-    for (const column of template.studentId.columns) {
-      for (const bubble of column) {
-        drawBubble(bubble);
-      }
-    }
-    for (const column of template.examCode.columns) {
-      for (const bubble of column) {
-        drawBubble(bubble);
-      }
-    }
-    for (const bubble of Object.values(template.examSet.choices)) {
-      drawBubble(bubble);
-    }
-    for (const answer of template.answers) {
-      drawBubble(answer.choices.A);
-      drawBubble(answer.choices.B);
-      drawBubble(answer.choices.C);
-      drawBubble(answer.choices.D);
-      if (answer.question % 5 === 1) {
-        const labelRect = normalizeRect(answer.choices.A, rectified.image.width, rectified.image.height);
-        ctx.fillStyle = "rgba(255,255,255,0.72)";
-        ctx.font = "10px Arial";
-        ctx.fillText(`${answer.question}`, Math.max(2, labelRect.x - 14), labelRect.y + 10);
-      }
-    }
-
-    for (const box of roiBoxes) {
-      drawOuter(
-        roiLabelMap[box.id] ?? box.id,
-        { x: box.x, y: box.y, w: box.w, h: box.h },
-        "#00ff95"
-      );
-    }
-  });
+  const { roiBoxes, roiOverlayUrl, readAreasOverlayUrl } = buildRoiAndReadAreaArtifacts(
+    rectified.image,
+    template,
+    onStage
+  );
 
   onStage?.("Compiling visual step list...");
   return [
