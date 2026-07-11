@@ -34,6 +34,17 @@ test("applyRoiBoxesToTemplate keeps fixed row/column structures", () => {
   assert.ok(answer1.choices.B.x < answer1.choices.C.x);
   assert.ok(answer1.choices.C.x < answer1.choices.D.x);
   assert.ok(answer2.choices.A.y > answer1.choices.A.y);
+
+  const studentRow1 = calibrated.studentId.columns[0];
+  const studentRow2 = calibrated.studentId.columns[1];
+  assert.ok(studentRow1[0].x < studentRow1[1].x);
+  assert.ok(studentRow1[9].x > studentRow1[0].x);
+  assert.ok(studentRow2[0].y > studentRow1[0].y);
+
+  const examCodeRow1 = calibrated.examCode.columns[0];
+  const examCodeRow2 = calibrated.examCode.columns[1];
+  assert.ok(examCodeRow1[0].x < examCodeRow1[1].x);
+  assert.ok(examCodeRow2[0].y > examCodeRow1[0].y);
 });
 
 test("calibrated bubble regions stay inside and touch ROI box bounds", () => {
