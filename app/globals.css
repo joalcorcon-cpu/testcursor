@@ -1,10 +1,12 @@
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 }
 
 body {
   margin: 0;
   font-family: Arial, Helvetica, sans-serif;
+  background: #f8f9fc;
+  color: #001a5e;
 }
 
 .main {
@@ -337,4 +339,208 @@ pre {
   left: -9px;
   bottom: -9px;
   cursor: nesw-resize;
+}
+
+.dashboard-main {
+  max-width: 1240px;
+}
+
+.dashboard-title {
+  margin-bottom: 1rem;
+  color: #001a5e;
+}
+
+.dashboard-shell {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  border: 1px solid #d0d5dd;
+  border-radius: 14px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.dashboard-sidebar {
+  background: #f8f9fc;
+  border-right: 1px solid #eaecf0;
+  padding: 1rem;
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+}
+
+.sidebar-brand {
+  display: grid;
+  gap: 0.15rem;
+  color: #0030ad;
+}
+
+.sidebar-brand span {
+  color: #475467;
+  font-size: 0.75rem;
+}
+
+.sidebar-nav {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.sidebar-link {
+  border-radius: 8px;
+  border: 1px solid #d0d5dd;
+  background: #ffffff;
+  color: #001a5e;
+  text-align: left;
+}
+
+.sidebar-link-active {
+  background: #e6eeff;
+  border-color: #b8ccff;
+}
+
+.dashboard-content {
+  padding: 1.25rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: start;
+}
+
+.dashboard-header h2 {
+  margin: 0;
+}
+
+.dashboard-header p {
+  margin: 0.3rem 0 0;
+  color: #475467;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.metric-card {
+  border: 1px solid #d0d5dd;
+  border-radius: 10px;
+  padding: 0.8rem;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.metric-card span {
+  color: #475467;
+  font-size: 0.82rem;
+}
+
+.metric-card strong {
+  color: #001a5e;
+}
+
+.upload-dropzone {
+  border: 2px dashed #0030ad;
+  border-radius: 14px;
+  padding: 1.25rem;
+  background: #f8f9fc;
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: 0.4rem;
+}
+
+.upload-dropzone h3 {
+  margin: 0;
+}
+
+.upload-dropzone p {
+  margin: 0;
+  color: #475467;
+}
+
+.upload-dropzone-active {
+  box-shadow: 0 0 0 2px #0030ad26 inset;
+}
+
+.drop-action {
+  border-radius: 8px;
+  border: 1px solid #0030ad;
+  background: #0030ad;
+  color: #ffffff;
+  padding: 0.5rem 0.9rem;
+  cursor: pointer;
+  margin-top: 0.25rem;
+}
+
+.queue-section {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.queue-section header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.queue-section h3 {
+  margin: 0;
+}
+
+.queue-list {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.queue-card {
+  border: 1px solid #d0d5dd;
+  border-radius: 10px;
+  padding: 0.7rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.9rem;
+}
+
+.queue-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.override-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: grid;
+  place-items: center;
+  z-index: 1200;
+  padding: 1rem;
+}
+
+.override-dialog {
+  width: min(920px, 100%);
+  background: #ffffff;
+  border: 1px solid #d0d5dd;
+  border-radius: 12px;
+  padding: 1rem;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.override-json {
+  min-height: 320px;
+  border-radius: 10px;
+  border: 1px solid #d0d5dd;
+  padding: 0.7rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.84rem;
+  color: #001a5e;
+  background: #ffffff;
 }

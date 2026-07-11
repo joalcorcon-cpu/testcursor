@@ -1,0 +1,346 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { processSheetFileInWorker, warmupOmrWorker } from "@/lib/omr/processSheetInWorker";
+import { prepareImageForScan } from "@/lib/omr/prepareImageForScan";
+import { defaultSheetTemplate } from "@/lib/templates/defaultSheetTemplate";
+import type { OMRResultJson, OMRTemplate } from "@/types/omr";
+
+type QueueStatus = "queued" | "processing" | "done" | "error";
+
+interface QueueFileItem {
+  id: string;
+  file: File;
+  name: string;
+  size: number;
+  status: QueueStatus;
+  result: OMRResultJson | null;
+  detail?: string;
+}
+
+const makeFileId = (file: File, nonce: number) =>
+  `${file.name}-${file.size}-${file.lastModified}-${nonce}`;
+
+const formatBytes = (bytes: number) => {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
+};
+
+export function MainScannerDashboard() {
+  const [activeTemplate] = useState<OMRTemplate>(() =>
+    JSON.parse(JSON.stringify(defaultSheetTemplate))
+  );
+  const activeTemplateRef = useRef<OMRTemplate>(
+    JSON.parse(JSON.stringify(defaultSheetTemplate))
+  );
+  const queueRef = useRef<QueueFileItem[]>([]);
+
+  const [queue, setQueue] = useState<QueueFileItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [scanStage, setScanStage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const [overrideFileId, setOverrideFileId] = useState<string | null>(null);
+  const [overrideDraft, setOverrideDraft] = useState("");
+  const [overrideError, setOverrideError] = useState<string | null>(null);
+
+  useEffect(() => {
+    activeTemplateRef.current = activeTemplate;
+  }, [activeTemplate]);
+
+  useEffect(() => {
+    queueRef.current = queue;
+  }, [queue]);
+
+  useEffect(() => {
+    void warmupOmrWorker().catch(() => {
+      // Warmup is best-effort.
+    });
+  }, []);
+
+  const statusCounts = useMemo(
+    () =>
+      queue.reduce(
+        (acc, item) => {
+          acc[item.status] += 1;
+          return acc;
+        },
+        { queued: 0, processing: 0, done: 0, error: 0 }
+      ),
+    [queue]
+  );
+
+  const updateQueueItem = (id: string, updater: (item: QueueFileItem) => QueueFileItem) => {
+    setQueue((current) => current.map((item) => (item.id === id ? updater(item) : item)));
+  };
+
+  const addFilesToQueue = (files: File[]) => {
+    if (files.length === 0) {
+      return;
+    }
+    const existing = new Set(queueRef.current.map((item) => `${item.name}:${item.size}:${item.file.lastModified}`));
+    const seed = Date.now();
+    const newItems = files
+      .filter((file) => /image\/(png|jpeg|webp)/.test(file.type))
+      .filter((file) => !existing.has(`${file.name}:${file.size}:${file.lastModified}`))
+      .map((file, index) => ({
+        id: makeFileId(file, seed + index),
+        file,
+        name: file.name,
+        size: file.size,
+        status: "queued" as const,
+        result: null as OMRResultJson | null
+      }));
+    if (newItems.length > 0) {
+      setQueue((current) => [...current, ...newItems]);
+    }
+  };
+
+  const processOneFile = async (
+    item: QueueFileItem,
+    index: number,
+    total: number,
+    signal: AbortSignal
+  ) => {
+    updateQueueItem(item.id, (current) => ({
+      ...current,
+      status: "processing",
+      detail: "Preparing image..."
+    }));
+    try {
+      const prepared = await prepareImageForScan(item.file);
+      const workerBuffer = prepared.rgbaBuffer.slice(0);
+      const scanned = await processSheetFileInWorker(
+        workerBuffer,
+        prepared.width,
+        prepared.height,
+        activeTemplateRef.current,
+        (stage) => {
+          setScanStage(`Processing ${index + 1}/${total}: ${item.name} — ${stage}`);
+          updateQueueItem(item.id, (current) => ({ ...current, detail: stage }));
+        },
+        signal
+      );
+      updateQueueItem(item.id, (current) => ({
+        ...current,
+        status: "done",
+        result: scanned,
+        detail: "Scan complete"
+      }));
+    } catch (scanError) {
+      updateQueueItem(item.id, (current) => ({
+        ...current,
+        status: "error",
+        detail: scanError instanceof Error ? scanError.message : "Scan failed."
+      }));
+    }
+  };
+
+  const runBatchProcess = async () => {
+    const pending = queueRef.current.filter((item) => item.status === "queued" || item.status === "error");
+    if (pending.length === 0) {
+      setError("Add at least one file to start batch processing.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const controller = new AbortController();
+    setAbortController(controller);
+    try {
+      for (let index = 0; index < pending.length; index += 1) {
+        if (controller.signal.aborted) {
+          break;
+        }
+        await processOneFile(pending[index], index, pending.length, controller.signal);
+      }
+    } finally {
+      setLoading(false);
+      setAbortController(null);
+      setScanStage(null);
+    }
+  };
+
+  const cancelBatch = () => {
+    abortController?.abort();
+  };
+
+  const deleteFromQueue = (id: string) => {
+    const target = queueRef.current.find((item) => item.id === id);
+    if (target?.status === "processing") {
+      abortController?.abort();
+    }
+    setQueue((current) => current.filter((item) => item.id !== id));
+    if (overrideFileId === id) {
+      setOverrideFileId(null);
+      setOverrideDraft("");
+      setOverrideError(null);
+    }
+  };
+
+  const openOverrideDialog = (id: string) => {
+    const item = queueRef.current.find((entry) => entry.id === id);
+    if (!item?.result) {
+      setError("This file does not have a scan result yet.");
+      return;
+    }
+    setOverrideFileId(id);
+    setOverrideDraft(JSON.stringify(item.result, null, 2));
+    setOverrideError(null);
+  };
+
+  const applyOverride = () => {
+    if (!overrideFileId) {
+      return;
+    }
+    try {
+      const parsed = JSON.parse(overrideDraft) as OMRResultJson;
+      updateQueueItem(overrideFileId, (item) => ({
+        ...item,
+        result: parsed,
+        status: "done",
+        detail: "Result overridden manually"
+      }));
+      setOverrideFileId(null);
+      setOverrideDraft("");
+      setOverrideError(null);
+    } catch (parseError) {
+      setOverrideError(parseError instanceof Error ? parseError.message : "Invalid JSON.");
+    }
+  };
+
+  const overrideItem = useMemo(
+    () => queue.find((item) => item.id === overrideFileId) ?? null,
+    [queue, overrideFileId]
+  );
+
+  return (
+    <main className="main dashboard-main">
+      <h1 className="dashboard-title">Scanner Dashboard</h1>
+      <section className="dashboard-shell">
+        <aside className="dashboard-sidebar">
+          <div className="sidebar-brand">
+            <strong>AERC</strong>
+            <span>Since 1999</span>
+          </div>
+          <nav className="sidebar-nav">
+            <button className="sidebar-link sidebar-link-active">Scanner</button>
+            <button className="sidebar-link">Results</button>
+            <button className="sidebar-link">Templates</button>
+            <button className="sidebar-link">History</button>
+            <button className="sidebar-link">Settings</button>
+          </nav>
+        </aside>
+
+        <section className="dashboard-content">
+          <header className="dashboard-header">
+            <div>
+              <h2>OMR Scanner</h2>
+              <p>Upload OMR sheets for automated grading and analysis</p>
+            </div>
+            <div className="actions">
+              <button onClick={() => void runBatchProcess()} disabled={loading || queue.length === 0}>
+                {loading ? "Processing..." : "Start Batch Process"}
+              </button>
+              {loading ? <button onClick={cancelBatch}>Cancel</button> : null}
+            </div>
+          </header>
+
+          <div className="metrics-grid">
+            <article className="metric-card"><span>Total Files</span><strong>{queue.length}</strong></article>
+            <article className="metric-card"><span>Queued</span><strong>{statusCounts.queued}</strong></article>
+            <article className="metric-card"><span>Processing</span><strong>{statusCounts.processing}</strong></article>
+            <article className="metric-card"><span>Completed</span><strong>{statusCounts.done}</strong></article>
+          </div>
+
+          <section
+            className={`upload-dropzone${dragActive ? " upload-dropzone-active" : ""}`}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setDragActive(true);
+            }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={(event) => {
+              event.preventDefault();
+              setDragActive(false);
+              addFilesToQueue(Array.from(event.dataTransfer.files));
+            }}
+          >
+            <h3>Drag and drop OMR files here</h3>
+            <p>Supports PNG, JPG, or WEBP.</p>
+            <input
+              id="omr-file-input"
+              className="drop-area-input"
+              type="file"
+              multiple
+              accept="image/png,image/jpeg,image/webp"
+              onChange={(event) => addFilesToQueue(Array.from(event.target.files ?? []))}
+            />
+            <label htmlFor="omr-file-input" className="drop-action">Browse Files</label>
+          </section>
+
+          <section className="queue-section">
+            <header>
+              <h3>Processing Queue</h3>
+              {scanStage ? <span className="subtle-text">{scanStage}</span> : null}
+            </header>
+            {error ? <p className="error">{error}</p> : null}
+            {queue.length === 0 ? (
+              <p className="subtle-text">No files added yet.</p>
+            ) : (
+              <div className="queue-list">
+                {queue.map((item) => (
+                  <article key={item.id} className="queue-card">
+                    <div>
+                      <strong>{item.name}</strong>
+                      <p className="subtle-text">{formatBytes(item.size)}</p>
+                      {item.detail ? <p className="subtle-text">{item.detail}</p> : null}
+                    </div>
+                    <div className="queue-actions">
+                      <span className={`processing-badge processing-${item.status}`}>{item.status}</span>
+                      <button onClick={() => openOverrideDialog(item.id)} disabled={!item.result}>
+                        Override & JSON
+                      </button>
+                      <button onClick={() => deleteFromQueue(item.id)}>Delete</button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        </section>
+      </section>
+
+      {overrideItem ? (
+        <div className="override-backdrop" role="presentation">
+          <section className="override-dialog" role="dialog" aria-modal="true">
+            <header className="modal-header">
+              <h2>Override Result — {overrideItem.name}</h2>
+              <button
+                onClick={() => {
+                  setOverrideFileId(null);
+                  setOverrideDraft("");
+                  setOverrideError(null);
+                }}
+              >
+                Close
+              </button>
+            </header>
+            <p className="subtle-text">Edit JSON override for this file.</p>
+            <textarea
+              className="override-json"
+              value={overrideDraft}
+              onChange={(event) => setOverrideDraft(event.target.value)}
+            />
+            {overrideError ? <p className="error">{overrideError}</p> : null}
+            <div className="actions">
+              <button onClick={applyOverride}>Apply Override</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </main>
+  );
+}
