@@ -31,6 +31,78 @@ interface VisualParsingDialogProps {
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
+const otsuThreshold = (grayscale: number[]): number => {
+  const histogram = new Array<number>(256).fill(0);
+  for (const value of grayscale) {
+    histogram[Math.min(255, Math.max(0, Math.round(value)))] += 1;
+  }
+
+  let totalWeighted = 0;
+  for (let i = 0; i < 256; i += 1) {
+    totalWeighted += i * histogram[i];
+  }
+
+  let backgroundWeight = 0;
+  let backgroundWeighted = 0;
+  let bestThreshold = 127;
+  let maxVariance = -1;
+  const total = grayscale.length;
+
+  for (let i = 0; i < 256; i += 1) {
+    backgroundWeight += histogram[i];
+    if (backgroundWeight === 0) {
+      continue;
+    }
+    const foregroundWeight = total - backgroundWeight;
+    if (foregroundWeight === 0) {
+      break;
+    }
+
+    backgroundWeighted += i * histogram[i];
+    const meanBackground = backgroundWeighted / backgroundWeight;
+    const meanForeground = (totalWeighted - backgroundWeighted) / foregroundWeight;
+    const variance =
+      backgroundWeight * foregroundWeight * (meanBackground - meanForeground) * (meanBackground - meanForeground);
+    if (variance > maxVariance) {
+      maxVariance = variance;
+      bestThreshold = i;
+    }
+  }
+
+  return bestThreshold;
+};
+
+const computeSnapshotCentroid = (
+  grayscale: number[],
+  width: number,
+  height: number
+): { x: number; y: number } | null => {
+  if (grayscale.length !== width * height) {
+    return null;
+  }
+  const threshold = otsuThreshold(grayscale);
+  let count = 0;
+  let sumX = 0;
+  let sumY = 0;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const value = grayscale[y * width + x];
+      if (value <= threshold) {
+        count += 1;
+        sumX += x;
+        sumY += y;
+      }
+    }
+  }
+  if (count < width * height * 0.01) {
+    return null;
+  }
+  return {
+    x: sumX / count,
+    y: sumY / count
+  };
+};
+
 interface CornerWindowEditorProps {
   baseImageDataUrl: string;
   initialCornerWindows: CornerWindowVisual[];
@@ -241,11 +313,14 @@ function CornerWindowEditor({
             data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114
           );
         }
+        const centroid = computeSnapshotCentroid(grayscale, width, height);
         snapshots[cornerWindow.id] = {
           id: cornerWindow.id,
           width,
           height,
-          grayscale
+          grayscale,
+          centroidX: centroid?.x,
+          centroidY: centroid?.y
         };
       }
       onCaptureCornerSnapshots(snapshots);

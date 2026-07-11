@@ -5,6 +5,16 @@ export interface RectifiedPreview {
   width: number;
   height: number;
   warped: boolean;
+  cornerDebug?: Array<{
+    id: "tl" | "tr" | "br" | "bl";
+    method: string;
+    found: boolean;
+    point: { x: number; y: number } | null;
+    searchRect?: { x: number; y: number; width: number; height: number };
+    matchRect?: { x: number; y: number; width: number; height: number };
+    score?: number;
+    usedSnapshotCentroid?: boolean;
+  }>;
 }
 
 type WorkerMessage =

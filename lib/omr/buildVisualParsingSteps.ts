@@ -361,7 +361,7 @@ export const buildVisualParsingSteps = async (
     threshold
   );
   const normalizedImageDataUrl = toDataUrl(normalizedImage);
-  const cornerDetections = template.cornerMarkers.map((marker) =>
+  const initialCornerDetections = template.cornerMarkers.map((marker) =>
     detectCornerCentroid(
       thresholdArtifacts.grayscale,
       threshold,
@@ -371,7 +371,7 @@ export const buildVisualParsingSteps = async (
       template.cornerSearchWindows?.[marker.id]
     )
   );
-  const cornerWindows: CornerWindowVisual[] = cornerDetections.map((detection, index) => ({
+  const cornerWindows: CornerWindowVisual[] = initialCornerDetections.map((detection, index) => ({
     id: template.cornerMarkers[index].id,
     x: detection.searchRect.x / normalizedImage.width,
     y: detection.searchRect.y / normalizedImage.height,
@@ -381,12 +381,11 @@ export const buildVisualParsingSteps = async (
     detectedY: detection.point ? detection.point.y / normalizedImage.height : null,
     hasCentroid: Boolean(detection.point)
   }));
-  const cornerCentroidFound = cornerDetections.filter((detection) => Boolean(detection.point)).length;
 
   const cornerWindowOverlayUrl = drawDataUrl(normalizedImage, (ctx) => {
     ctx.lineWidth = 3;
     ctx.strokeStyle = "#00ff95";
-    for (const detection of cornerDetections) {
+    for (const detection of initialCornerDetections) {
       ctx.strokeRect(
         detection.searchRect.x,
         detection.searchRect.y,
@@ -396,9 +395,77 @@ export const buildVisualParsingSteps = async (
     }
   });
 
+  onStage?.("Applying perspective transform...");
+  let cornerDebug:
+    | Array<{
+        id: CornerMarker["id"];
+        method: string;
+        found: boolean;
+        point: { x: number; y: number } | null;
+        searchRect?: { x: number; y: number; width: number; height: number };
+        matchRect?: { x: number; y: number; width: number; height: number };
+        score?: number;
+        usedSnapshotCentroid?: boolean;
+      }>
+    | undefined;
+  let rectified = { image: normalizedImage, warped: false };
+  try {
+    const rectifiedPreview = await buildRectifiedPreviewInWorker(
+      prepared.rgbaBuffer.slice(0),
+      prepared.width,
+      prepared.height,
+      template
+    );
+    cornerDebug = rectifiedPreview.cornerDebug;
+    rectified = {
+      image: imageDataFromRgba(
+        rectifiedPreview.rgbaBuffer,
+        rectifiedPreview.width,
+        rectifiedPreview.height
+      ),
+      warped: rectifiedPreview.warped
+    };
+  } catch {
+    rectified = { image: normalizedImage, warped: false };
+  }
+  const fallbackCentroidById = new Map(
+    template.cornerMarkers.map((marker, idx) => [marker.id, initialCornerDetections[idx]])
+  );
+  const centroidOverlayDetections = template.cornerMarkers.map((marker) => {
+    const debug = cornerDebug?.find((entry) => entry.id === marker.id);
+    if (debug) {
+      const fallback = fallbackCentroidById.get(marker.id);
+      return {
+        id: marker.id,
+        searchRect: debug.searchRect
+          ? {
+              x: debug.searchRect.x,
+              y: debug.searchRect.y,
+              w: debug.searchRect.width,
+              h: debug.searchRect.height
+            }
+          : fallback?.searchRect ?? normalizeRect(expandMarker(marker, 4), normalizedImage.width, normalizedImage.height),
+        point: debug.point,
+        found: debug.found,
+        matchRect: debug.matchRect,
+        method: debug.method,
+        usedSnapshotCentroid: debug.usedSnapshotCentroid
+      };
+    }
+    const fallback = fallbackCentroidById.get(marker.id);
+    return {
+      id: marker.id,
+      searchRect:
+        fallback?.searchRect ?? normalizeRect(expandMarker(marker, 4), normalizedImage.width, normalizedImage.height),
+      point: fallback?.point ?? null,
+      found: Boolean(fallback?.point),
+      method: "visual-fallback"
+    };
+  });
+  const cornerCentroidFound = centroidOverlayDetections.filter((detection) => detection.found).length;
   const cornerCentroidOverlayUrl = drawDataUrl(darkPixelImage, (ctx) => {
     ctx.lineWidth = 2;
-    for (const detection of cornerDetections) {
+    for (const detection of centroidOverlayDetections) {
       ctx.strokeStyle = "#00ff95";
       ctx.strokeRect(
         detection.searchRect.x,
@@ -406,8 +473,18 @@ export const buildVisualParsingSteps = async (
         detection.searchRect.w,
         detection.searchRect.h
       );
+      if (detection.matchRect) {
+        ctx.strokeStyle = "#ffd166";
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(
+          detection.matchRect.x,
+          detection.matchRect.y,
+          detection.matchRect.width,
+          detection.matchRect.height
+        );
+      }
       if (detection.point) {
-        ctx.fillStyle = "#00ff95";
+        ctx.fillStyle = detection.usedSnapshotCentroid ? "#ffa94d" : "#00ff95";
         ctx.beginPath();
         ctx.arc(detection.point.x, detection.point.y, 4, 0, Math.PI * 2);
         ctx.fill();
@@ -424,27 +501,6 @@ export const buildVisualParsingSteps = async (
       }
     }
   });
-
-  onStage?.("Applying perspective transform...");
-  let rectified = { image: normalizedImage, warped: false };
-  try {
-    const rectifiedPreview = await buildRectifiedPreviewInWorker(
-      prepared.rgbaBuffer.slice(0),
-      prepared.width,
-      prepared.height,
-      template
-    );
-    rectified = {
-      image: imageDataFromRgba(
-        rectifiedPreview.rgbaBuffer,
-        rectifiedPreview.width,
-        rectifiedPreview.height
-      ),
-      warped: rectifiedPreview.warped
-    };
-  } catch {
-    rectified = { image: normalizedImage, warped: false };
-  }
   const rectifiedImageDataUrl = toDataUrl(rectified.image);
 
   onStage?.("Drawing region overlays...");
@@ -581,7 +637,7 @@ export const buildVisualParsingSteps = async (
     {
       id: "corner-centroids",
       title: "Step 2: Corner centroid detection",
-      description: `Centroids are computed from dark pixels (pre-inversion) inside each selected region (${cornerCentroidFound}/4 found). Missing centroid means the region needs adjustment.`,
+      description: `Centroids are computed from matched corner crops (${cornerCentroidFound}/4 found). Green centroid = crop centroid, orange = snapshot-centroid offset fallback, yellow box = matchTemplate crop.`,
       imageDataUrl: cornerCentroidOverlayUrl
     },
     {
