@@ -922,6 +922,40 @@ export function MainScannerDashboard() {
       const XLSX = await import("xlsx");
       const rows = [Array.from(excelHeaders), ...doneRows.map((item) => buildExcelRow(item))];
       const sheet = XLSX.utils.aoa_to_sheet(rows);
+      const range = XLSX.utils.decode_range(sheet["!ref"] ?? "A1");
+      const colCount = range.e.c - range.s.c + 1;
+      const columnWidths = new Array<number>(colCount).fill(0);
+      for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+        for (let colIndex = 0; colIndex < colCount; colIndex += 1) {
+          const cellValue = rows[rowIndex]?.[colIndex] ?? "";
+          const cellText = String(cellValue);
+          columnWidths[colIndex] = Math.max(columnWidths[colIndex], cellText.length);
+          if (rowIndex > 0 && cellText.trim() === "") {
+            const address = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
+            const cell = ((sheet as Record<string, unknown>)[address] ?? {
+              t: "s",
+              v: ""
+            }) as Record<string, unknown>;
+            cell.s = {
+              fill: {
+                patternType: "solid",
+                fgColor: { rgb: "FFFDE68A" }
+              }
+            };
+            (sheet as Record<string, unknown>)[address] = cell;
+          }
+        }
+      }
+      (sheet as Record<string, unknown>)["!cols"] = columnWidths.map((width) => ({
+        wch: Math.min(60, Math.max(10, width + 2))
+      }));
+      (sheet as Record<string, unknown>)["!freeze"] = {
+        xSplit: 0,
+        ySplit: 1,
+        topLeftCell: "A2",
+        activePane: "bottomLeft",
+        state: "frozen"
+      };
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, sheet, "results");
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
