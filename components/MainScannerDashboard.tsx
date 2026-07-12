@@ -13,7 +13,7 @@ import { processSheetFileInWorker, warmupOmrWorker } from "@/lib/omr/processShee
 import { prepareImageForScan } from "@/lib/omr/prepareImageForScan";
 import { defaultSheetTemplate } from "@/lib/templates/defaultSheetTemplate";
 import { loadBundledCornerSnapshots } from "@/lib/templates/loadBundledCornerSnapshots";
-import type { CornerSnapshot, OMRResultJson, OMRTemplate } from "@/types/omr";
+import type { ChoiceLabel, CornerSnapshot, OMRResultJson, OMRTemplate } from "@/types/omr";
 
 type QueueStatus = "queued" | "processing" | "done" | "error";
 
@@ -33,6 +33,7 @@ interface TransformReviewState {
   isOpen: boolean;
   loading: boolean;
   error: string | null;
+  fileId: string | null;
   fileName: string;
   overlayUrl: string | null;
   summaryLines: string[];
@@ -139,6 +140,33 @@ const excelHeaders = [
 const clampThreshold = (value: number) =>
   Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0.28;
 
+const buildTransformSummary = (result: OMRResultJson, threshold: number): string[] => {
+  const multiDominantAnswers = result.answers.filter(
+    (answer) => countDominantLetters(answer.shadeScores, threshold) >= 2
+  ).length;
+  const blankAnswers = result.answers.filter((answer) => (answer.selected?.length ?? 0) === 0).length;
+  const ambiguousAnswers = result.answers.filter((answer) => answer.ambiguous).length;
+  const studentIdText = result.student.studentId.detected
+    .map((digit) => (digit === "" ? "_" : String(digit)))
+    .join("");
+  const examCodeText = result.student.examCode.detected
+    .map((digit) => (digit === "" ? "_" : String(digit)))
+    .join("");
+  const examSetText = result.student.examSet.selected.join(",") || "(blank)";
+  return [
+    `Student ID: ${studentIdText}`,
+    `Exam Code: ${examCodeText}`,
+    `Exam Set: ${examSetText}`,
+    `Threshold Used: ${threshold.toFixed(2)}`,
+    `Answers with 2+ dominant letters: ${multiDominantAnswers}/${result.answers.length}`,
+    `Blank answers: ${blankAnswers}`,
+    `Ambiguous answers: ${ambiguousAnswers}`,
+    `Corners detected: ${result.pipeline.cornerFoundCount ?? 0}/4`,
+    `Corners used: ${result.pipeline.cornerUsedCount ?? 0}/4`,
+    `Corners triangulated: ${result.pipeline.cornerTriangulatedCount ?? 0}`
+  ];
+};
+
 export function MainScannerDashboard() {
   const [activeTemplate, setActiveTemplate] = useState<OMRTemplate>(() =>
     JSON.parse(JSON.stringify(defaultSheetTemplate))
@@ -181,6 +209,7 @@ export function MainScannerDashboard() {
     isOpen: false,
     loading: false,
     error: null,
+    fileId: null,
     fileName: "",
     overlayUrl: null,
     summaryLines: []
@@ -413,6 +442,17 @@ export function MainScannerDashboard() {
       setOverrideDraft("");
       setOverrideError(null);
     }
+    if (transformReview.fileId === id) {
+      setTransformReview({
+        isOpen: false,
+        loading: false,
+        error: null,
+        fileId: null,
+        fileName: "",
+        overlayUrl: null,
+        summaryLines: []
+      });
+    }
   };
 
   const deleteAllFiles = () => {
@@ -425,6 +465,17 @@ export function MainScannerDashboard() {
       setOverrideFileId(null);
       setOverrideDraft("");
       setOverrideError(null);
+    }
+    if (transformReview.isOpen) {
+      setTransformReview({
+        isOpen: false,
+        loading: false,
+        error: null,
+        fileId: null,
+        fileName: "",
+        overlayUrl: null,
+        summaryLines: []
+      });
     }
   };
 
@@ -475,6 +526,13 @@ export function MainScannerDashboard() {
     () => queue.find((item) => item.id === activeVisualFileId) ?? null,
     [queue, activeVisualFileId]
   );
+  const transformReviewItem = useMemo(
+    () =>
+      transformReview.fileId
+        ? queue.find((item) => item.id === transformReview.fileId) ?? null
+        : null,
+    [queue, transformReview.fileId]
+  );
 
   const openVisualDialog = async (fileId: string) => {
     const target = queueRef.current.find((item) => item.id === fileId);
@@ -516,6 +574,7 @@ export function MainScannerDashboard() {
       isOpen: true,
       loading: true,
       error: null,
+      fileId,
       fileName: target.name,
       overlayUrl: null,
       summaryLines: []
@@ -524,30 +583,7 @@ export function MainScannerDashboard() {
       const steps = await buildVisualParsingSteps(target.file, referenceTemplateRef.current);
       const roiStep = steps.find((step) => step.id === "regions");
       const threshold = target.thresholdUsed ?? (referenceTemplateRef.current.scoring?.darknessThreshold ?? 0.28);
-      const multiDominantAnswers = target.result.answers.filter(
-        (answer) => countDominantLetters(answer.shadeScores, threshold) >= 2
-      ).length;
-      const blankAnswers = target.result.answers.filter((answer) => (answer.selected?.length ?? 0) === 0).length;
-      const ambiguousAnswers = target.result.answers.filter((answer) => answer.ambiguous).length;
-      const studentIdText = target.result.student.studentId.detected
-        .map((digit) => (digit === "" ? "_" : String(digit)))
-        .join("");
-      const examCodeText = target.result.student.examCode.detected
-        .map((digit) => (digit === "" ? "_" : String(digit)))
-        .join("");
-      const examSetText = target.result.student.examSet.selected.join(",") || "(blank)";
-      const summaryLines = [
-        `Student ID: ${studentIdText}`,
-        `Exam Code: ${examCodeText}`,
-        `Exam Set: ${examSetText}`,
-        `Threshold Used: ${threshold.toFixed(2)}`,
-        `Answers with 2+ dominant letters: ${multiDominantAnswers}/${target.result.answers.length}`,
-        `Blank answers: ${blankAnswers}`,
-        `Ambiguous answers: ${ambiguousAnswers}`,
-        `Corners detected: ${target.result.pipeline.cornerFoundCount ?? 0}/4`,
-        `Corners used: ${target.result.pipeline.cornerUsedCount ?? 0}/4`,
-        `Corners triangulated: ${target.result.pipeline.cornerTriangulatedCount ?? 0}`
-      ];
+      const summaryLines = buildTransformSummary(target.result, threshold);
       setTransformReview((current) => ({
         ...current,
         loading: false,
@@ -560,6 +596,78 @@ export function MainScannerDashboard() {
         loading: false,
         error: reviewError instanceof Error ? reviewError.message : "Unable to build transformed review."
       }));
+    }
+  };
+
+  const applyTransformDigitOverride = (group: "studentId" | "examCode", rowIndex: number, nextValue: number | "") => {
+    if (!transformReview.fileId) {
+      return;
+    }
+    let nextSummaryLines: string[] | null = null;
+    updateQueueItem(transformReview.fileId, (item) => {
+      if (!item.result) {
+        return item;
+      }
+      const nextDigits = [...(item.result.student[group].detected ?? [])];
+      nextDigits[rowIndex] = nextValue;
+      const nextResult: OMRResultJson = {
+        ...item.result,
+        student: {
+          ...item.result.student,
+          [group]: {
+            ...item.result.student[group],
+            detected: nextDigits
+          }
+        }
+      };
+      const threshold = item.thresholdUsed ?? (referenceTemplateRef.current.scoring?.darknessThreshold ?? 0.28);
+      nextSummaryLines = buildTransformSummary(nextResult, threshold);
+      return {
+        ...item,
+        result: nextResult,
+        status: "done",
+        detail: "Result overridden from transformed review"
+      };
+    });
+    if (nextSummaryLines) {
+      setTransformReview((current) => ({ ...current, summaryLines: nextSummaryLines ?? current.summaryLines }));
+    }
+  };
+
+  const applyTransformExamSetOverride = (choice: ChoiceLabel) => {
+    if (!transformReview.fileId) {
+      return;
+    }
+    let nextSummaryLines: string[] | null = null;
+    updateQueueItem(transformReview.fileId, (item) => {
+      if (!item.result) {
+        return item;
+      }
+      const isAlreadySelected = item.result.student.examSet.selected.includes(choice);
+      const nextSelected = isAlreadySelected ? [] : [choice];
+      const nextResult: OMRResultJson = {
+        ...item.result,
+        student: {
+          ...item.result.student,
+          examSet: {
+            ...item.result.student.examSet,
+            selected: nextSelected,
+            ambiguous: false,
+            confidence: nextSelected.length === 1 ? 1 : 0
+          }
+        }
+      };
+      const threshold = item.thresholdUsed ?? (referenceTemplateRef.current.scoring?.darknessThreshold ?? 0.28);
+      nextSummaryLines = buildTransformSummary(nextResult, threshold);
+      return {
+        ...item,
+        result: nextResult,
+        status: "done",
+        detail: "Result overridden from transformed review"
+      };
+    });
+    if (nextSummaryLines) {
+      setTransformReview((current) => ({ ...current, summaryLines: nextSummaryLines ?? current.summaryLines }));
     }
   };
 
@@ -866,15 +974,22 @@ export function MainScannerDashboard() {
 
           <section className="queue-section">
             <header>
-              <h3>Processing Queue</h3>
-              {loading ? <button onClick={cancelBatch}>Cancel</button> : null}
-              {!scanTemplateReady ? <span className="subtle-text">Loading template...</span> : null}
-              <button onClick={() => void exportResultsToExcel()} disabled={exportBusy || queue.every((item) => !item.result)}>
-                {exportBusy ? "Exporting..." : "Export Excel"}
-              </button>
-              <button onClick={deleteAllFiles} disabled={queue.length === 0}>
-                Delete All
-              </button>
+              <div className="queue-header-left">
+                <h3>Processing Queue</h3>
+                {!scanTemplateReady ? <span className="subtle-text">Loading template...</span> : null}
+              </div>
+              <div className="queue-header-actions">
+                {loading ? <button onClick={cancelBatch}>Cancel</button> : null}
+                <button
+                  onClick={() => void exportResultsToExcel()}
+                  disabled={exportBusy || queue.every((item) => !item.result)}
+                >
+                  {exportBusy ? "Exporting..." : "Export Excel"}
+                </button>
+                <button onClick={deleteAllFiles} disabled={queue.length === 0}>
+                  Delete All
+                </button>
+              </div>
             </header>
             {scanStage ? (
               <div className="processing-progress-panel">
@@ -988,6 +1103,7 @@ export function MainScannerDashboard() {
                     isOpen: false,
                     loading: false,
                     error: null,
+                    fileId: null,
                     fileName: "",
                     overlayUrl: null,
                     summaryLines: []
@@ -1016,6 +1132,103 @@ export function MainScannerDashboard() {
                       <li key={line}>{line}</li>
                     ))}
                   </ul>
+                  {transformReviewItem?.result ? (
+                    <div className="transform-override-panel">
+                      <h4>Manual ROI Override</h4>
+                      <p className="subtle-text">
+                        Click a value to force the parsed output. Click an active value again to clear it.
+                      </p>
+                      <div className="transform-override-grid">
+                        <strong>Student ID</strong>
+                        {transformReviewItem.result.student.studentId.detected.map((value, rowIndex) => (
+                          <div key={`student-id-${rowIndex}`} className="transform-override-row">
+                            <span className="subtle-text">Digit {rowIndex + 1}</span>
+                            <div className="transform-choice-row">
+                              <button
+                                type="button"
+                                className={`transform-choice-chip${
+                                  value === "" ? " transform-choice-chip-active" : ""
+                                }`}
+                                onClick={() => applyTransformDigitOverride("studentId", rowIndex, "")}
+                              >
+                                blank
+                              </button>
+                              {Array.from({ length: 10 }, (_, digit) => (
+                                <button
+                                  key={`student-id-${rowIndex}-${digit}`}
+                                  type="button"
+                                  className={`transform-choice-chip${
+                                    value === digit ? " transform-choice-chip-active" : ""
+                                  }`}
+                                  onClick={() =>
+                                    applyTransformDigitOverride(
+                                      "studentId",
+                                      rowIndex,
+                                      value === digit ? "" : digit
+                                    )
+                                  }
+                                >
+                                  {digit}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                        <strong>Exam Code</strong>
+                        {transformReviewItem.result.student.examCode.detected.map((value, rowIndex) => (
+                          <div key={`exam-code-${rowIndex}`} className="transform-override-row">
+                            <span className="subtle-text">Digit {rowIndex + 1}</span>
+                            <div className="transform-choice-row">
+                              <button
+                                type="button"
+                                className={`transform-choice-chip${
+                                  value === "" ? " transform-choice-chip-active" : ""
+                                }`}
+                                onClick={() => applyTransformDigitOverride("examCode", rowIndex, "")}
+                              >
+                                blank
+                              </button>
+                              {Array.from({ length: 10 }, (_, digit) => (
+                                <button
+                                  key={`exam-code-${rowIndex}-${digit}`}
+                                  type="button"
+                                  className={`transform-choice-chip${
+                                    value === digit ? " transform-choice-chip-active" : ""
+                                  }`}
+                                  onClick={() =>
+                                    applyTransformDigitOverride(
+                                      "examCode",
+                                      rowIndex,
+                                      value === digit ? "" : digit
+                                    )
+                                  }
+                                >
+                                  {digit}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                        <strong>Exam Set</strong>
+                        <div className="transform-choice-row">
+                          {(["A", "B", "C", "D"] as ChoiceLabel[]).map((choice) => (
+                            <button
+                              key={`exam-set-${choice}`}
+                              type="button"
+                              className={`transform-choice-chip${
+                                transformReviewItem.result?.student.examSet.selected.includes(choice)
+                                  ? " transform-choice-chip-active"
+                                  : ""
+                              }`}
+                              onClick={() => applyTransformExamSetOverride(choice)}
+                            >
+                              {choice}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : null}
