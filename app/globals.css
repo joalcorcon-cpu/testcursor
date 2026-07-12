@@ -737,7 +737,7 @@ pre {
   position: absolute;
   pointer-events: auto;
   border-radius: 4px;
-  border: 2px solid #16a34a;
+  border: 2px solid #98a2b3;
   background: transparent;
   opacity: 1;
   color: #1d2939;
@@ -769,8 +769,8 @@ pre {
 .transform-overlay-row-highlight {
   position: absolute;
   pointer-events: none;
-  background: rgba(250, 204, 21, 0.38);
-  border: 1px solid rgba(202, 138, 4, 0.7);
+  background: transparent;
+  border: 2px solid #eab308;
   border-radius: 4px;
 }
 
@@ -810,6 +810,7 @@ pre {
   background: #ffffff;
   max-height: 320px;
   overflow: auto;
+  padding: 0.5rem;
 }
 
 .transform-answer-row {
@@ -818,16 +819,19 @@ pre {
   align-items: center;
   gap: 0.75rem;
   padding: 0.42rem 0.55rem;
-  border-bottom: 1px solid #f2f4f7;
+  border: 1px solid #f2f4f7;
+  border-radius: 6px;
+  margin-bottom: 0.35rem;
   font-size: 0.8rem;
 }
 
 .transform-answer-row:last-child {
-  border-bottom: none;
+  margin-bottom: 0;
 }
 
 .transform-answer-row-vacant {
-  background: #fef8d8;
+  background: transparent;
+  border-color: #eab308;
 }
 
 .transform-override-panel {
