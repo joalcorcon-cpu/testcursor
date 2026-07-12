@@ -60,7 +60,7 @@ const issueDefinitions: IssueDefinition[] = [
   },
   {
     key: "warn-uneven-corners",
-    label: "Uneven corners (angles not close to 90°)",
+    label: "Uneven Corners Detected (Triangulation used)",
     kind: "warning"
   },
   {
@@ -981,7 +981,14 @@ export function MainScannerDashboard() {
           const cellValue = rows[rowIndex]?.[colIndex] ?? "";
           const cellText = String(cellValue);
           columnWidths[colIndex] = Math.max(columnWidths[colIndex], cellText.length);
-          if (rowIndex > 0 && cellText.trim() === "") {
+          const columnFirstValue = String(rows[0]?.[colIndex] ?? "").trim();
+          const rowFirstValue = String(rows[rowIndex]?.[0] ?? "").trim();
+          if (
+            rowIndex > 0 &&
+            columnFirstValue !== "" &&
+            rowFirstValue !== "" &&
+            cellText.trim() === ""
+          ) {
             const address = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
             const cell = ((sheet as Record<string, unknown>)[address] ?? {
               t: "s",
