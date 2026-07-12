@@ -1057,7 +1057,10 @@ export function MainScannerDashboard() {
                 fill: {
                   type: "pattern",
                   pattern: "solid",
-                  fgColor: { argb: "FFFDE68A" }
+                  fgColor: { argb: "FFFFEB9C" }
+                },
+                font: {
+                  color: { argb: "FF9C6500" }
                 }
               }
             }
