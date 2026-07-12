@@ -563,10 +563,27 @@ pre {
   justify-content: space-between;
   align-items: baseline;
   gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .queue-section h3 {
   margin: 0;
+}
+
+.queue-header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.queue-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .queue-list {
@@ -720,6 +737,50 @@ pre {
   padding-left: 1.1rem;
   display: grid;
   gap: 0.35rem;
+}
+
+.transform-override-panel {
+  margin-top: 0.8rem;
+  border-top: 1px solid #eaecf0;
+  padding-top: 0.75rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.transform-override-panel h4 {
+  margin: 0;
+}
+
+.transform-override-grid {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.transform-override-row {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.transform-choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.transform-choice-chip {
+  border: 1px solid #d0d5dd;
+  border-radius: 999px;
+  padding: 0.2rem 0.5rem;
+  background: #ffffff;
+  color: #344054;
+  font-size: 0.75rem;
+}
+
+.transform-choice-chip-active {
+  border-color: var(--brand-primary);
+  background: #e8edfd;
+  color: var(--brand-primary);
+  font-weight: 700;
 }
 
 @media (max-width: 768px) {
