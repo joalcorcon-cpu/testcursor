@@ -82,7 +82,7 @@ const computeChoiceScores = (cv, thresholded, choices) => ({
   D: regionShadeScore(cv, thresholded, choices.D)
 });
 
-const pickSelections = (scores, minMarkThreshold = 0.18, ambiguityGap = 0.03) => {
+const pickSelections = (scores, minMarkThreshold = 0.3, ambiguityGap = 0.03) => {
   const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
   const top = sorted[0];
   const second = sorted[1];

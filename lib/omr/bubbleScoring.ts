@@ -64,7 +64,7 @@ export const computeChoiceScores = (
 
 export const pickSelections = (
   scores: ChoiceScores,
-  minMarkThreshold = 0.18,
+  minMarkThreshold = 0.3,
   ambiguityGap = 0.03
 ) => {
   const sorted = (Object.entries(scores) as [ChoiceLabel, number][])
