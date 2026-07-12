@@ -19,6 +19,8 @@ Scan output contains only bubble-related data:
 - `student.examSet`: selected set option(s) + shade scores/confidence
 - `answers[]`: per question selected option(s), shade scores, confidence, ambiguous flag
 
+Default darkness threshold is `0.28`, and it is user-configurable in the scanner UI.
+
 No raw image blobs are persisted by default.
 
 ## Quick start

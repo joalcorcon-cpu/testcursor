@@ -187,7 +187,10 @@ const scoreDigitColumns = (thresholded: CvMat, columns: { x: number; y: number; 
   const shadeScores = columns.map((column) =>
     column.map((bubble) => regionShadeScore(thresholded, bubble))
   );
-  const detected = shadeScores.map((scores) => pickDigitByDominance(scores).detected);
+  const darknessThreshold = defaultSheetTemplate.scoring?.darknessThreshold ?? 0.28;
+  const detected = shadeScores.map((scores) =>
+    pickDigitByDominance(scores, { minTopScore: darknessThreshold }).detected
+  );
   return { detected, shadeScores };
 };
 
@@ -201,7 +204,8 @@ export const processSheetFile = async (file: File): Promise<OMRResultJson> => {
     const studentId = scoreDigitColumns(thresholded, defaultSheetTemplate.studentId.columns);
     const examCode = scoreDigitColumns(thresholded, defaultSheetTemplate.examCode.columns);
     const examSetScores = computeChoiceScores(thresholded, defaultSheetTemplate.examSet.choices);
-    const examSetDecision = pickSelections(examSetScores);
+    const darknessThreshold = defaultSheetTemplate.scoring?.darknessThreshold ?? 0.28;
+    const examSetDecision = pickSelections(examSetScores, darknessThreshold);
     const answers: OMRResultJson["answers"] = [];
     for (let index = 0; index < defaultSheetTemplate.answers.length; index += 1) {
       const item = defaultSheetTemplate.answers[index];

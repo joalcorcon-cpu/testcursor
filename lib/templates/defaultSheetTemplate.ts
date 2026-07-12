@@ -70,6 +70,9 @@ const baseTemplate: OMRTemplate = {
   version: 1,
   sheetWidth: 1,
   sheetHeight: 1,
+  scoring: {
+    darknessThreshold: 0.28
+  },
   cornerMarkers: [
     { id: "tl", x: 0.038, y: 0.045, w: 0.018, h: 0.018 },
     { id: "tr", x: 0.944, y: 0.046, w: 0.018, h: 0.018 },

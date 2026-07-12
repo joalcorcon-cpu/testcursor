@@ -49,6 +49,9 @@ export interface OMRTemplate {
   cornerMarkers: CornerMarker[];
   cornerSearchWindows?: Partial<Record<CornerMarker["id"], BubbleRegion>>;
   cornerSnapshots?: Partial<Record<CornerMarker["id"], CornerSnapshot>>;
+  scoring?: {
+    darknessThreshold?: number;
+  };
   roiCalibrationBoxes?: Partial<
     Record<
       "studentId" | "examCode" | "examSet" | "answersCol1" | "answersCol2" | "answersCol3",

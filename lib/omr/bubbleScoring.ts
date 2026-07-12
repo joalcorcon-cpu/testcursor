@@ -64,7 +64,7 @@ export const computeChoiceScores = (
 
 export const pickSelections = (
   scores: ChoiceScores,
-  minMarkThreshold = 0.3,
+  minMarkThreshold = 0.28,
   ambiguityGap = 0.03
 ) => {
   const sorted = (Object.entries(scores) as [ChoiceLabel, number][])
@@ -91,7 +91,7 @@ export const pickDigitByDominance = (
     return { detected: "" as const, confidence: 0 };
   }
   const {
-    minTopScore = 0.3,
+    minTopScore = 0.28,
     minGapToSecond = 0.025,
     minStdMultiplier = 1.2
   } = options;

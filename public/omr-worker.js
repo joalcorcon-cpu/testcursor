@@ -82,7 +82,7 @@ const computeChoiceScores = (cv, thresholded, choices) => ({
   D: regionShadeScore(cv, thresholded, choices.D)
 });
 
-const pickSelections = (scores, minMarkThreshold = 0.3, ambiguityGap = 0.03) => {
+const pickSelections = (scores, minMarkThreshold = 0.28, ambiguityGap = 0.03) => {
   const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
   const top = sorted[0];
   const second = sorted[1];
@@ -100,7 +100,7 @@ const pickSelections = (scores, minMarkThreshold = 0.3, ambiguityGap = 0.03) => 
 
 const pickDigitByDominance = (
   scores,
-  { minTopScore = 0.3, minGapToSecond = 0.025, minStdMultiplier = 1.2 } = {}
+  { minTopScore = 0.28, minGapToSecond = 0.025, minStdMultiplier = 1.2 } = {}
 ) => {
   if (!scores || scores.length === 0) {
     return { detected: "", confidence: 0 };
@@ -530,17 +530,19 @@ const inferMissingCornersBySimilarity = (pointsById, canonicalById) => {
   return inferred;
 };
 
-const scoreDigitColumns = (cv, thresholded, columns) => {
+const scoreDigitColumns = (cv, thresholded, columns, darknessThreshold) => {
   const shadeScores = columns.map((column) =>
     column.map((bubble) => regionShadeScore(cv, thresholded, bubble))
   );
-  const detected = shadeScores.map((scores) => pickDigitByDominance(scores).detected);
+  const detected = shadeScores.map((scores) =>
+    pickDigitByDominance(scores, { minTopScore: darknessThreshold }).detected
+  );
   return { detected, shadeScores };
 };
 
-const scoreAnswer = (cv, thresholded, answerItem) => {
+const scoreAnswer = (cv, thresholded, answerItem, darknessThreshold) => {
   const shadeScores = computeChoiceScores(cv, thresholded, answerItem.choices);
-  const decision = pickSelections(shadeScores);
+  const decision = pickSelections(shadeScores, darknessThreshold);
   return {
     q: answerItem.question,
     selected: decision.selected,
@@ -1019,16 +1021,21 @@ const runScan = async ({ requestId, imageRgbaBuffer, width, height, template }) 
 
   const thresholded = rectified.thresholded;
   try {
+    const darknessThreshold = clamp(
+      Number(template?.scoring?.darknessThreshold ?? 0.28),
+      0,
+      1
+    );
     postProgress(requestId, "Scoring ID and exam fields...");
-    const studentId = scoreDigitColumns(cv, thresholded, template.studentId.columns);
-    const examCode = scoreDigitColumns(cv, thresholded, template.examCode.columns);
+    const studentId = scoreDigitColumns(cv, thresholded, template.studentId.columns, darknessThreshold);
+    const examCode = scoreDigitColumns(cv, thresholded, template.examCode.columns, darknessThreshold);
     const examSetScores = computeChoiceScores(cv, thresholded, template.examSet.choices);
-    const examSetDecision = pickSelections(examSetScores);
+    const examSetDecision = pickSelections(examSetScores, darknessThreshold);
 
     const answers = [];
     postProgress(requestId, "Scoring answers...");
     for (let index = 0; index < template.answers.length; index += 1) {
-      answers.push(scoreAnswer(cv, thresholded, template.answers[index]));
+      answers.push(scoreAnswer(cv, thresholded, template.answers[index], darknessThreshold));
       if ((index + 1) % 20 === 0) {
         postProgress(requestId, `Scoring answers (${index + 1}/${template.answers.length})...`);
       }

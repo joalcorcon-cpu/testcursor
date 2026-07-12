@@ -483,6 +483,19 @@ pre {
   color: #475467;
 }
 
+.threshold-control {
+  display: inline-grid;
+  gap: 0.3rem;
+  margin-top: 0.55rem;
+  font-size: 0.86rem;
+  color: #475467;
+}
+
+.threshold-control input {
+  width: 120px;
+  background: #ffffff;
+}
+
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

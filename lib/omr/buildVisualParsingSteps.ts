@@ -391,7 +391,8 @@ const buildRoiAndReadAreaArtifacts = (
   onStage?.("Rendering detailed read-area map...");
   const rectifiedThreshold = buildThresholdArtifacts(rectifiedImage);
   const readAreasOverlayUrl = drawDataUrl(rectifiedImage, (ctx) => {
-    const drawBubble = (region: BubbleRegion, activeThreshold = 0.18) => {
+    const activeThreshold = template.scoring?.darknessThreshold ?? 0.28;
+    const drawBubble = (region: BubbleRegion, threshold = activeThreshold) => {
       const shade = shadeScoreFromMask(
         rectifiedThreshold.thresholdMask,
         rectifiedImage.width,
@@ -399,7 +400,7 @@ const buildRoiAndReadAreaArtifacts = (
         region
       );
       const rect = normalizeRect(region, rectifiedImage.width, rectifiedImage.height);
-      const active = shade >= activeThreshold;
+      const active = shade >= threshold;
       ctx.lineWidth = 1;
       ctx.strokeStyle = active ? "#12ff8b" : "rgba(255,255,255,0.28)";
       ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);

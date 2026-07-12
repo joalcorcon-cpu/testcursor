@@ -48,6 +48,9 @@ const excelHeaders = [
   ...Array.from({ length: 30 }, (_, index) => `Answer Sheet 3-${index}`)
 ] as const;
 
+const clampThreshold = (value: number) =>
+  Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0.28;
+
 export function MainScannerDashboard() {
   const [activeTemplate, setActiveTemplate] = useState<OMRTemplate>(() =>
     JSON.parse(JSON.stringify(defaultSheetTemplate))
@@ -82,6 +85,9 @@ export function MainScannerDashboard() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
+  const [darknessThreshold, setDarknessThreshold] = useState<number>(
+    defaultSheetTemplate.scoring?.darknessThreshold ?? 0.28
+  );
 
   useEffect(() => {
     activeTemplateRef.current = activeTemplate;
@@ -473,6 +479,25 @@ export function MainScannerDashboard() {
     }
   };
 
+  const applyDarknessThreshold = (nextValue: number) => {
+    const normalized = clampThreshold(nextValue);
+    setDarknessThreshold(normalized);
+    referenceTemplateRef.current = {
+      ...referenceTemplateRef.current,
+      scoring: {
+        ...(referenceTemplateRef.current.scoring ?? {}),
+        darknessThreshold: normalized
+      }
+    };
+    setActiveTemplate((current) => ({
+      ...current,
+      scoring: {
+        ...(current.scoring ?? {}),
+        darknessThreshold: normalized
+      }
+    }));
+  };
+
   const buildExcelRow = (item: QueueFileItem): string[] => {
     const row = new Array<string>(excelHeaders.length).fill("");
     row[0] = item.name;
@@ -580,6 +605,17 @@ export function MainScannerDashboard() {
             <div>
               <h1 className="dashboard-title">AERC OMR Scanner App</h1>
               <p className="subtle-text">Upload files and they are processed automatically.</p>
+              <label className="threshold-control">
+                Darkness Threshold
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={darknessThreshold}
+                  onChange={(event) => applyDarknessThreshold(Number(event.target.value))}
+                />
+              </label>
             </div>
           </header>
 
