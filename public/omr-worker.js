@@ -90,10 +90,11 @@ const pickSelections = (scores, minMarkThreshold = 0.18, ambiguityGap = 0.03) =>
     .filter((entry) => entry[1] >= minMarkThreshold && top[1] - entry[1] <= ambiguityGap)
     .map((entry) => entry[0]);
   const confidence = clamp(top[1] - second[1], 0, 1);
+  const ambiguous = selected.length !== 1;
   return {
-    selected,
+    selected: ambiguous ? [] : selected,
     confidence,
-    ambiguous: selected.length !== 1
+    ambiguous
   };
 };
 
