@@ -735,13 +735,11 @@ pre {
 
 .transform-overlay-checkbox {
   position: absolute;
-  transform: translate(-50%, -50%);
   pointer-events: auto;
-  width: 18px;
-  height: 18px;
   border-radius: 4px;
-  border: 1px solid #667085;
-  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid #98a2b3;
+  background: rgba(255, 255, 255, 0.5);
+  opacity: 0.5;
   color: #1d2939;
   font-size: 9px;
   font-weight: 700;
@@ -753,14 +751,11 @@ pre {
 }
 
 .transform-overlay-checkbox-active {
-  border-color: var(--brand-primary);
-  background: rgba(20, 40, 104, 0.88);
-  color: #ffffff;
+  border: 2px solid #1d4ed8;
+  color: #0f172a;
 }
 
 .transform-overlay-checkbox-answer {
-  width: 14px;
-  height: 14px;
   border-radius: 3px;
   font-size: 7px;
 }

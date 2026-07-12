@@ -1185,8 +1185,10 @@ export function MainScannerDashboard() {
                                     active ? " transform-overlay-checkbox-active" : ""
                                   }`}
                                   style={{
-                                    left: `${(bubble.x + bubble.w / 2) * 100}%`,
-                                    top: `${(bubble.y + bubble.h / 2) * 100}%`
+                                    left: `${bubble.x * 100}%`,
+                                    top: `${bubble.y * 100}%`,
+                                    width: `${bubble.w * 100}%`,
+                                    height: `${bubble.h * 100}%`
                                   }}
                                   onClick={() =>
                                     applyTransformDigitOverride(
@@ -1215,8 +1217,10 @@ export function MainScannerDashboard() {
                                     active ? " transform-overlay-checkbox-active" : ""
                                   }`}
                                   style={{
-                                    left: `${(bubble.x + bubble.w / 2) * 100}%`,
-                                    top: `${(bubble.y + bubble.h / 2) * 100}%`
+                                    left: `${bubble.x * 100}%`,
+                                    top: `${bubble.y * 100}%`,
+                                    width: `${bubble.w * 100}%`,
+                                    height: `${bubble.h * 100}%`
                                   }}
                                   onClick={() =>
                                     applyTransformDigitOverride(
@@ -1246,8 +1250,10 @@ export function MainScannerDashboard() {
                                   active ? " transform-overlay-checkbox-active" : ""
                                 }`}
                                 style={{
-                                  left: `${(bubble.x + bubble.w / 2) * 100}%`,
-                                  top: `${(bubble.y + bubble.h / 2) * 100}%`
+                                  left: `${bubble.x * 100}%`,
+                                  top: `${bubble.y * 100}%`,
+                                  width: `${bubble.w * 100}%`,
+                                  height: `${bubble.h * 100}%`
                                 }}
                                 onClick={() => applyTransformExamSetOverride(choice)}
                               >
@@ -1271,8 +1277,10 @@ export function MainScannerDashboard() {
                                     active ? " transform-overlay-checkbox-active" : ""
                                   }`}
                                   style={{
-                                    left: `${(bubble.x + bubble.w / 2) * 100}%`,
-                                    top: `${(bubble.y + bubble.h / 2) * 100}%`
+                                    left: `${bubble.x * 100}%`,
+                                    top: `${bubble.y * 100}%`,
+                                    width: `${bubble.w * 100}%`,
+                                    height: `${bubble.h * 100}%`
                                   }}
                                   onClick={() => applyTransformAnswerOverride(answer.question, choice)}
                                 >
