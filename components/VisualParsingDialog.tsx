@@ -709,7 +709,15 @@ export function VisualParsingDialog({
   };
 
   return (
-    <div className="modal-backdrop" role="presentation">
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          handleClose();
+        }
+      }}
+    >
       <section className="modal-card" role="dialog" aria-modal="true">
         <header className="modal-header">
           <h2>Visual Parse Debug</h2>

@@ -530,6 +530,69 @@ const inferMissingCornersBySimilarity = (pointsById, canonicalById) => {
   return inferred;
 };
 
+const cornerAngleDegrees = (previousPoint, vertexPoint, nextPoint) => {
+  const v1x = previousPoint.x - vertexPoint.x;
+  const v1y = previousPoint.y - vertexPoint.y;
+  const v2x = nextPoint.x - vertexPoint.x;
+  const v2y = nextPoint.y - vertexPoint.y;
+  const magnitude1 = Math.hypot(v1x, v1y);
+  const magnitude2 = Math.hypot(v2x, v2y);
+  if (magnitude1 <= 1e-6 || magnitude2 <= 1e-6) {
+    return 0;
+  }
+  const cosine = clamp((v1x * v2x + v1y * v2y) / (magnitude1 * magnitude2), -1, 1);
+  return (Math.acos(cosine) * 180) / Math.PI;
+};
+
+const buildCornerAngleDiagnostics = (corners) => {
+  if (!Array.isArray(corners) || corners.length !== 4) {
+    return {
+      angles: null,
+      uneven: false
+    };
+  }
+  const angles = {
+    tl: cornerAngleDegrees(corners[3], corners[0], corners[1]),
+    tr: cornerAngleDegrees(corners[0], corners[1], corners[2]),
+    br: cornerAngleDegrees(corners[1], corners[2], corners[3]),
+    bl: cornerAngleDegrees(corners[2], corners[3], corners[0])
+  };
+  const maxDeviation = Math.max(
+    Math.abs(angles.tl - 90),
+    Math.abs(angles.tr - 90),
+    Math.abs(angles.br - 90),
+    Math.abs(angles.bl - 90)
+  );
+  return {
+    angles,
+    uneven: maxDeviation > 12
+  };
+};
+
+const computeCornerMaxDeviation = (angles) => {
+  if (!angles) {
+    return Infinity;
+  }
+  return Math.max(
+    Math.abs(angles.tl - 90),
+    Math.abs(angles.tr - 90),
+    Math.abs(angles.br - 90),
+    Math.abs(angles.bl - 90)
+  );
+};
+
+const computeCornerPolygonArea = (corners) =>
+  Math.abs(
+    corners[0].x * corners[1].y +
+      corners[1].x * corners[2].y +
+      corners[2].x * corners[3].y +
+      corners[3].x * corners[0].y -
+      (corners[1].x * corners[0].y +
+        corners[2].x * corners[1].y +
+        corners[3].x * corners[2].y +
+        corners[0].x * corners[3].y)
+  ) / 2;
+
 const scoreDigitColumns = (cv, thresholded, columns, darknessThreshold) => {
   const shadeScores = columns.map((column) =>
     column.map((bubble) => regionShadeScore(cv, thresholded, bubble))
@@ -800,34 +863,86 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
       triangulatedCount: Math.max(0, Object.keys(pointsById).length - initialFoundCount)
     };
   }
-  const corners = orderedMarkers.map((marker) => ({
+  let corners = orderedMarkers.map((marker) => ({
     x: pointsById[marker.id].x,
     y: pointsById[marker.id].y
   }));
+  let angleDiagnostics = buildCornerAngleDiagnostics(corners);
+  const foundAfterTriangulationCount = Object.keys(pointsById).length;
+  const triangulatedFromMissingCount = Math.max(0, foundAfterTriangulationCount - initialFoundCount);
+  let correctedMisalignedCount = 0;
+  if (initialFoundCount === 4 && angleDiagnostics.uneven) {
+    const currentDeviation = computeCornerMaxDeviation(angleDiagnostics.angles);
+    let bestCorrection = null;
+    for (const marker of orderedMarkers) {
+      const candidatePoints = { ...pointsById };
+      delete candidatePoints[marker.id];
+      const inferred = inferMissingCornerByParallelogram(candidatePoints);
+      if (!inferred || inferred.id !== marker.id) {
+        continue;
+      }
+      const candidateWithInference = {
+        ...pointsById,
+        [marker.id]: inferred.point
+      };
+      const candidateCorners = orderedMarkers.map((orderedMarker) => ({
+        x: candidateWithInference[orderedMarker.id].x,
+        y: candidateWithInference[orderedMarker.id].y
+      }));
+      const candidateLayoutIsValid =
+        candidateCorners[0].x < candidateCorners[1].x &&
+        candidateCorners[3].x < candidateCorners[2].x &&
+        candidateCorners[0].y < candidateCorners[3].y &&
+        candidateCorners[1].y < candidateCorners[2].y;
+      const candidatePolygonArea = computeCornerPolygonArea(candidateCorners);
+      if (
+        !candidateLayoutIsValid ||
+        candidatePolygonArea < thresholded.cols * thresholded.rows * 0.25
+      ) {
+        continue;
+      }
+      const candidateDiagnostics = buildCornerAngleDiagnostics(candidateCorners);
+      const candidateDeviation = computeCornerMaxDeviation(candidateDiagnostics.angles);
+      if (candidateDeviation + 2 >= currentDeviation) {
+        continue;
+      }
+      if (!bestCorrection || candidateDeviation < bestCorrection.deviation) {
+        bestCorrection = {
+          id: marker.id,
+          point: inferred.point,
+          corners: candidateCorners,
+          diagnostics: candidateDiagnostics,
+          deviation: candidateDeviation
+        };
+      }
+    }
+    if (bestCorrection && bestCorrection.deviation <= 12) {
+      pointsById[bestCorrection.id] = bestCorrection.point;
+      corners = bestCorrection.corners;
+      angleDiagnostics = bestCorrection.diagnostics;
+      correctedMisalignedCount = 1;
+      const correctedDebug = debugById.get(bestCorrection.id);
+      if (correctedDebug) {
+        correctedDebug.found = true;
+        correctedDebug.method = `${correctedDebug.method}+triangulated-rectangle`;
+        correctedDebug.point = { x: bestCorrection.point.x, y: bestCorrection.point.y };
+      }
+    }
+  }
   const cornerLayoutIsValid =
     corners[0].x < corners[1].x &&
     corners[3].x < corners[2].x &&
     corners[0].y < corners[3].y &&
     corners[1].y < corners[2].y;
-  const polygonArea =
-    Math.abs(
-      corners[0].x * corners[1].y +
-        corners[1].x * corners[2].y +
-        corners[2].x * corners[3].y +
-        corners[3].x * corners[0].y -
-        (corners[1].x * corners[0].y +
-          corners[2].x * corners[1].y +
-          corners[3].x * corners[2].y +
-          corners[0].x * corners[3].y)
-    ) / 2;
+  const polygonArea = computeCornerPolygonArea(corners);
   if (!cornerLayoutIsValid || polygonArea < thresholded.cols * thresholded.rows * 0.25) {
     return {
       valid: false,
       corners: [],
       debug: cornerDetections.map((entry) => entry.debug),
       foundByDetectionCount: initialFoundCount,
-      foundAfterTriangulationCount: Object.keys(pointsById).length,
-      triangulatedCount: Math.max(0, Object.keys(pointsById).length - initialFoundCount)
+      foundAfterTriangulationCount,
+      triangulatedCount: triangulatedFromMissingCount + correctedMisalignedCount
     };
   }
 
@@ -836,8 +951,10 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
     corners,
     debug: orderedMarkers.map((marker) => debugById.get(marker.id)),
     foundByDetectionCount: initialFoundCount,
-    foundAfterTriangulationCount: Object.keys(pointsById).length,
-    triangulatedCount: Math.max(0, Object.keys(pointsById).length - initialFoundCount)
+    foundAfterTriangulationCount,
+    triangulatedCount: triangulatedFromMissingCount + correctedMisalignedCount,
+    cornerAngles: angleDiagnostics.angles,
+    cornerUneven: angleDiagnostics.uneven
   };
 };
 
@@ -850,7 +967,9 @@ const rectifySheet = (cv, gray, thresholded, template, otsuThreshold) => {
       cornerDebug: cornerResolution.debug,
       cornerFoundCount: cornerResolution.foundByDetectionCount,
       cornerUsedCount: cornerResolution.foundAfterTriangulationCount,
-      cornerTriangulatedCount: cornerResolution.triangulatedCount
+      cornerTriangulatedCount: cornerResolution.triangulatedCount,
+      cornerAngles: cornerResolution.cornerAngles,
+      cornerUneven: cornerResolution.cornerUneven
     };
   }
 
@@ -897,7 +1016,9 @@ const rectifySheet = (cv, gray, thresholded, template, otsuThreshold) => {
     cornerDebug: cornerResolution.debug,
     cornerFoundCount: cornerResolution.foundByDetectionCount,
     cornerUsedCount: cornerResolution.foundAfterTriangulationCount,
-    cornerTriangulatedCount: cornerResolution.triangulatedCount
+    cornerTriangulatedCount: cornerResolution.triangulatedCount,
+    cornerAngles: cornerResolution.cornerAngles,
+    cornerUneven: cornerResolution.cornerUneven
   };
 };
 
@@ -1060,7 +1181,9 @@ const runScan = async ({ requestId, imageRgbaBuffer, width, height, template }) 
         height: thresholded.rows,
         cornerFoundCount: rectified.cornerFoundCount,
         cornerUsedCount: rectified.cornerUsedCount,
-        cornerTriangulatedCount: rectified.cornerTriangulatedCount
+        cornerTriangulatedCount: rectified.cornerTriangulatedCount,
+        cornerAngles: rectified.cornerAngles,
+        cornerUneven: rectified.cornerUneven
       }
     };
   } finally {

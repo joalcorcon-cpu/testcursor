@@ -106,6 +106,13 @@ export interface OMRResultJson {
     cornerFoundCount?: number;
     cornerUsedCount?: number;
     cornerTriangulatedCount?: number;
+    cornerAngles?: {
+      tl: number;
+      tr: number;
+      br: number;
+      bl: number;
+    };
+    cornerUneven?: boolean;
   };
 }
 

@@ -41,6 +41,7 @@ interface TransformReviewState {
 
 type IssueKey =
   | "warn-triangulated-corners"
+  | "warn-uneven-corners"
   | "warn-many-multi-dominant-answers"
   | "error-id-incomplete"
   | "error-no-exam-set";
@@ -55,6 +56,11 @@ const issueDefinitions: IssueDefinition[] = [
   {
     key: "warn-triangulated-corners",
     label: "Less than 4 corners detected (triangulation used)",
+    kind: "warning"
+  },
+  {
+    key: "warn-uneven-corners",
+    label: "Uneven corners (angles not close to 90°)",
     kind: "warning"
   },
   {
@@ -94,6 +100,9 @@ const getItemIssues = (item: QueueFileItem): IssueKey[] => {
   const pipeline = item.result.pipeline;
   if ((pipeline.cornerFoundCount ?? 4) < 4 || (pipeline.cornerTriangulatedCount ?? 0) > 0) {
     issues.push("warn-triangulated-corners");
+  }
+  if (pipeline.cornerUneven) {
+    issues.push("warn-uneven-corners");
   }
 
   const threshold = item.thresholdUsed ?? 0.28;
@@ -178,6 +187,9 @@ export function MainScannerDashboard() {
   const referenceTemplateRef = useRef<OMRTemplate>(
     JSON.parse(JSON.stringify(defaultSheetTemplate))
   );
+  const fileTemplateOverridesRef = useRef<
+    Record<string, Partial<Pick<OMRTemplate, "cornerSnapshots" | "cornerSearchWindows">>>
+  >({});
   const queueRef = useRef<QueueFileItem[]>([]);
 
   const [queue, setQueue] = useState<QueueFileItem[]>([]);
@@ -233,6 +245,7 @@ export function MainScannerDashboard() {
   const issueCounts = useMemo(() => {
     const counts: Record<IssueKey, number> = {
       "warn-triangulated-corners": 0,
+      "warn-uneven-corners": 0,
       "warn-many-multi-dominant-answers": 0,
       "error-id-incomplete": 0,
       "error-no-exam-set": 0
@@ -318,6 +331,24 @@ export function MainScannerDashboard() {
     setQueue((current) => current.map((item) => (item.id === id ? updater(item) : item)));
   };
 
+  const buildProcessingTemplateForFile = (fileId: string): OMRTemplate => {
+    const fileOverride = fileTemplateOverridesRef.current[fileId];
+    if (!fileOverride) {
+      return referenceTemplateRef.current;
+    }
+    return {
+      ...referenceTemplateRef.current,
+      cornerSnapshots: {
+        ...(referenceTemplateRef.current.cornerSnapshots ?? {}),
+        ...(fileOverride.cornerSnapshots ?? {})
+      },
+      cornerSearchWindows: {
+        ...(referenceTemplateRef.current.cornerSearchWindows ?? {}),
+        ...(fileOverride.cornerSearchWindows ?? {})
+      }
+    };
+  };
+
   const addFilesToQueue = (files: File[]) => {
     if (files.length === 0) {
       return;
@@ -355,13 +386,13 @@ export function MainScannerDashboard() {
     try {
       const prepared = await prepareImageForScan(item.file);
       const workerBuffer = prepared.rgbaBuffer.slice(0);
-      const thresholdUsed =
-        referenceTemplateRef.current.scoring?.darknessThreshold ?? 0.28;
+      const processingTemplate = buildProcessingTemplateForFile(item.id);
+      const thresholdUsed = processingTemplate.scoring?.darknessThreshold ?? 0.28;
       const scanned = await processSheetFileInWorker(
         workerBuffer,
         prepared.width,
         prepared.height,
-        referenceTemplateRef.current,
+        processingTemplate,
         (stage) => {
           setScanStage(`Processing ${index + 1}/${total}: ${item.name} — ${stage}`);
           updateQueueItem(item.id, (current) => ({ ...current, detail: stage }));
@@ -437,6 +468,7 @@ export function MainScannerDashboard() {
       abortController?.abort();
     }
     setQueue((current) => current.filter((item) => item.id !== id));
+    delete fileTemplateOverridesRef.current[id];
     if (overrideFileId === id) {
       setOverrideFileId(null);
       setOverrideDraft("");
@@ -458,6 +490,7 @@ export function MainScannerDashboard() {
   const deleteAllFiles = () => {
     abortController?.abort();
     setQueue([]);
+    fileTemplateOverridesRef.current = {};
     setSelectedIssueFilters([]);
     setScanStage(null);
     setError(null);
@@ -553,9 +586,10 @@ export function MainScannerDashboard() {
     setVisualDialogError(null);
     setVisualDialogStage("Preparing visual parsing steps...");
     try {
+      const fileTemplate = buildProcessingTemplateForFile(fileId);
       const steps = await buildVisualParsingSteps(
         target.file,
-        activeTemplateRef.current,
+        fileTemplate,
         (stage) => setVisualDialogStage(stage)
       );
       setVisualSteps(steps);
@@ -587,9 +621,10 @@ export function MainScannerDashboard() {
       summaryLines: []
     });
     try {
-      const steps = await buildVisualParsingSteps(target.file, referenceTemplateRef.current);
+      const fileTemplate = buildProcessingTemplateForFile(fileId);
+      const steps = await buildVisualParsingSteps(target.file, fileTemplate);
       const roiStep = steps.find((step) => step.id === "regions");
-      const threshold = target.thresholdUsed ?? (referenceTemplateRef.current.scoring?.darknessThreshold ?? 0.28);
+      const threshold = target.thresholdUsed ?? (fileTemplate.scoring?.darknessThreshold ?? 0.28);
       const summaryLines = buildTransformSummary(target.result, threshold);
       setTransformReview((current) => ({
         ...current,
@@ -782,6 +817,13 @@ export function MainScannerDashboard() {
       cornerSearchWindows: searchWindows,
       cornerMarkers: nextCornerMarkers
     };
+    if (activeVisualFileId) {
+      const existingOverride = fileTemplateOverridesRef.current[activeVisualFileId] ?? {};
+      fileTemplateOverridesRef.current[activeVisualFileId] = {
+        ...existingOverride,
+        cornerSearchWindows: searchWindows
+      };
+    }
     setActiveTemplate(nextTemplate);
     setVisualDialogError(null);
     setVisualSteps((current) =>
@@ -793,16 +835,25 @@ export function MainScannerDashboard() {
   const captureCornerSnapshots = (
     snapshots: Partial<Record<CornerWindowVisual["id"], CornerSnapshot>>
   ) => {
-    const nextTemplate = {
-      ...activeTemplateRef.current,
+    if (!activeVisualFileId) {
+      return;
+    }
+    const existingOverride = fileTemplateOverridesRef.current[activeVisualFileId] ?? {};
+    fileTemplateOverridesRef.current[activeVisualFileId] = {
+      ...existingOverride,
       cornerSnapshots: {
-        ...(activeTemplateRef.current.cornerSnapshots ?? {}),
+        ...(existingOverride.cornerSnapshots ?? {}),
         ...snapshots
       }
     };
-    setActiveTemplate(nextTemplate);
+    updateQueueItem(activeVisualFileId, (item) => ({
+      ...item,
+      status: "queued",
+      detail: "File-specific corner snapshots updated. Reprocessing..."
+    }));
+    setAutoProcessTick((value) => value + 1);
     setVisualDialogStage(
-      "Corner snapshots captured. Next scan will use quadrant template matching for corners."
+      "Corner snapshots saved for this file only. The file was queued for reprocessing."
     );
   };
 
@@ -922,6 +973,40 @@ export function MainScannerDashboard() {
       const XLSX = await import("xlsx");
       const rows = [Array.from(excelHeaders), ...doneRows.map((item) => buildExcelRow(item))];
       const sheet = XLSX.utils.aoa_to_sheet(rows);
+      const range = XLSX.utils.decode_range(sheet["!ref"] ?? "A1");
+      const colCount = range.e.c - range.s.c + 1;
+      const columnWidths = new Array<number>(colCount).fill(0);
+      for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+        for (let colIndex = 0; colIndex < colCount; colIndex += 1) {
+          const cellValue = rows[rowIndex]?.[colIndex] ?? "";
+          const cellText = String(cellValue);
+          columnWidths[colIndex] = Math.max(columnWidths[colIndex], cellText.length);
+          if (rowIndex > 0 && cellText.trim() === "") {
+            const address = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
+            const cell = ((sheet as Record<string, unknown>)[address] ?? {
+              t: "s",
+              v: ""
+            }) as Record<string, unknown>;
+            cell.s = {
+              fill: {
+                patternType: "solid",
+                fgColor: { rgb: "FFFDE68A" }
+              }
+            };
+            (sheet as Record<string, unknown>)[address] = cell;
+          }
+        }
+      }
+      (sheet as Record<string, unknown>)["!cols"] = columnWidths.map((width) => ({
+        wch: Math.min(60, Math.max(10, width + 2))
+      }));
+      (sheet as Record<string, unknown>)["!freeze"] = {
+        xSplit: 0,
+        ySplit: 1,
+        topLeftCell: "A2",
+        activePane: "bottomLeft",
+        state: "frozen"
+      };
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, sheet, "results");
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -1147,7 +1232,17 @@ export function MainScannerDashboard() {
       </section>
 
       {overrideItem ? (
-        <div className="override-backdrop" role="presentation">
+        <div
+          className="override-backdrop"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setOverrideFileId(null);
+              setOverrideDraft("");
+              setOverrideError(null);
+            }
+          }}
+        >
           <section className="override-dialog" role="dialog" aria-modal="true">
             <header className="modal-header">
               <h2>Override Result — {overrideItem.name}</h2>
@@ -1175,7 +1270,23 @@ export function MainScannerDashboard() {
         </div>
       ) : null}
       {transformReview.isOpen ? (
-        <div className="override-backdrop" role="presentation">
+        <div
+          className="override-backdrop"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setTransformReview({
+                isOpen: false,
+                loading: false,
+                error: null,
+                fileId: null,
+                fileName: "",
+                overlayUrl: null,
+                summaryLines: []
+              });
+            }
+          }}
+        >
           <section className="transform-review-dialog" role="dialog" aria-modal="true">
             <header className="modal-header">
               <h2>Transformed ROI Review — {transformReview.fileName}</h2>
