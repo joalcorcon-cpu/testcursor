@@ -574,6 +574,37 @@ pre {
   gap: 0.6rem;
 }
 
+.issue-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.issue-chip {
+  border-radius: 999px;
+  font-size: 0.78rem;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid #d0d5dd;
+  background: #ffffff;
+}
+
+.issue-chip-warning {
+  border-color: #fdb022;
+  color: #7a2e0b;
+  background: #fffaeb;
+}
+
+.issue-chip-error {
+  border-color: #f97066;
+  color: #b42318;
+  background: #fef3f2;
+}
+
+.issue-chip-active {
+  box-shadow: 0 0 0 2px rgba(20, 40, 104, 0.15) inset;
+  font-weight: 700;
+}
+
 .queue-card {
   border: 1px solid #d0d5dd;
   border-radius: 10px;
