@@ -544,7 +544,7 @@ const cornerAngleDegrees = (previousPoint, vertexPoint, nextPoint) => {
   return (Math.acos(cosine) * 180) / Math.PI;
 };
 
-const buildCornerAngleDiagnostics = (corners) => {
+const buildCornerAngleDiagnostics = (corners, toleranceDegrees) => {
   if (!Array.isArray(corners) || corners.length !== 4) {
     return {
       angles: null,
@@ -565,7 +565,7 @@ const buildCornerAngleDiagnostics = (corners) => {
   );
   return {
     angles,
-    uneven: maxDeviation > ANGLE_ALLOWANCE_DEGREES
+    uneven: maxDeviation > toleranceDegrees
   };
 };
 
@@ -594,8 +594,9 @@ const computeCornerPolygonArea = (corners) =>
   ) / 2;
 
 const RIGHT_ANGLE_DEGREES = 90;
-const ANGLE_ALLOWANCE_PERCENT = 5;
-const ANGLE_ALLOWANCE_DEGREES = (RIGHT_ANGLE_DEGREES * ANGLE_ALLOWANCE_PERCENT) / 100;
+const DEFAULT_ANGLE_ALLOWANCE_DEGREES = 4.5;
+const readCornerAngleToleranceDegrees = (template) =>
+  clamp(Number(template?.scoring?.cornerAngleToleranceDegrees ?? DEFAULT_ANGLE_ALLOWANCE_DEGREES), 0.5, 30);
 
 const scoreDigitColumns = (cv, thresholded, columns, darknessThreshold) => {
   const shadeScores = columns.map((column) =>
@@ -649,6 +650,7 @@ const makeThresholdedSheet = (cv, imageRgbaBuffer, width, height) => {
 };
 
 const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => {
+  const angleToleranceDegrees = readCornerAngleToleranceDegrees(template);
   const orderedMarkers = [
     template.cornerMarkers.find((marker) => marker.id === "tl"),
     template.cornerMarkers.find((marker) => marker.id === "tr"),
@@ -871,13 +873,13 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
     x: pointsById[marker.id].x,
     y: pointsById[marker.id].y
   }));
-  let angleDiagnostics = buildCornerAngleDiagnostics(corners);
+  let angleDiagnostics = buildCornerAngleDiagnostics(corners, angleToleranceDegrees);
   const foundAfterTriangulationCount = Object.keys(pointsById).length;
   const triangulatedFromMissingCount = Math.max(0, foundAfterTriangulationCount - initialFoundCount);
   let correctedMisalignedCount = 0;
   if (
     initialFoundCount === 4 &&
-    computeCornerMaxDeviation(angleDiagnostics.angles) > ANGLE_ALLOWANCE_DEGREES
+    computeCornerMaxDeviation(angleDiagnostics.angles) > angleToleranceDegrees
   ) {
     const currentDeviation = computeCornerMaxDeviation(angleDiagnostics.angles);
     let bestCorrection = null;
@@ -908,7 +910,7 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
       ) {
         continue;
       }
-      const candidateDiagnostics = buildCornerAngleDiagnostics(candidateCorners);
+      const candidateDiagnostics = buildCornerAngleDiagnostics(candidateCorners, angleToleranceDegrees);
       const candidateDeviation = computeCornerMaxDeviation(candidateDiagnostics.angles);
       if (candidateDeviation + 0.25 >= currentDeviation) {
         continue;

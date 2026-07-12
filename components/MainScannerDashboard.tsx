@@ -148,6 +148,8 @@ const excelHeaders = [
 
 const clampThreshold = (value: number) =>
   Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0.28;
+const clampCornerAngleTolerance = (value: number) =>
+  Number.isFinite(value) ? Math.min(30, Math.max(0.5, value)) : 4.5;
 
 const columnIndexToExcelLetter = (columnIndex: number): string => {
   let value = Math.max(1, Math.floor(columnIndex));
@@ -227,6 +229,9 @@ export function MainScannerDashboard() {
   const [selectedIssueFilters, setSelectedIssueFilters] = useState<IssueKey[]>([]);
   const [darknessThreshold, setDarknessThreshold] = useState<number>(
     defaultSheetTemplate.scoring?.darknessThreshold ?? 0.28
+  );
+  const [cornerAngleToleranceDegrees, setCornerAngleToleranceDegrees] = useState<number>(
+    defaultSheetTemplate.scoring?.cornerAngleToleranceDegrees ?? 4.5
   );
   const [transformReview, setTransformReview] = useState<TransformReviewState>({
     isOpen: false,
@@ -934,6 +939,25 @@ export function MainScannerDashboard() {
     }));
   };
 
+  const applyCornerAngleTolerance = (nextValue: number) => {
+    const normalized = clampCornerAngleTolerance(nextValue);
+    setCornerAngleToleranceDegrees(normalized);
+    referenceTemplateRef.current = {
+      ...referenceTemplateRef.current,
+      scoring: {
+        ...(referenceTemplateRef.current.scoring ?? {}),
+        cornerAngleToleranceDegrees: normalized
+      }
+    };
+    setActiveTemplate((current) => ({
+      ...current,
+      scoring: {
+        ...(current.scoring ?? {}),
+        cornerAngleToleranceDegrees: normalized
+      }
+    }));
+  };
+
   const buildExcelRow = (item: QueueFileItem): string[] => {
     const row = new Array<string>(excelHeaders.length).fill("");
     row[0] = item.name;
@@ -1101,6 +1125,17 @@ export function MainScannerDashboard() {
                   step={0.01}
                   value={darknessThreshold}
                   onChange={(event) => applyDarknessThreshold(Number(event.target.value))}
+                />
+              </label>
+              <label className="threshold-control">
+                Corner Angle Tolerance (°)
+                <input
+                  type="number"
+                  min={0.5}
+                  max={30}
+                  step={0.1}
+                  value={cornerAngleToleranceDegrees}
+                  onChange={(event) => applyCornerAngleTolerance(Number(event.target.value))}
                 />
               </label>
             </div>
