@@ -26,7 +26,86 @@ interface QueueFileItem {
   result: OMRResultJson | null;
   detail?: string;
   diagnostics?: string;
+  thresholdUsed?: number;
 }
+
+type IssueKey =
+  | "warn-triangulated-corners"
+  | "warn-many-multi-dominant-answers"
+  | "error-id-incomplete"
+  | "error-no-exam-set";
+
+interface IssueDefinition {
+  key: IssueKey;
+  label: string;
+  kind: "warning" | "error";
+}
+
+const issueDefinitions: IssueDefinition[] = [
+  {
+    key: "warn-triangulated-corners",
+    label: "Less than 4 corners detected (triangulation used)",
+    kind: "warning"
+  },
+  {
+    key: "warn-many-multi-dominant-answers",
+    label: "25% answers have 2+ dominant letters",
+    kind: "warning"
+  },
+  {
+    key: "error-id-incomplete",
+    label: "ID number incomplete",
+    kind: "error"
+  },
+  {
+    key: "error-no-exam-set",
+    label: "No Exam Set",
+    kind: "error"
+  }
+];
+
+const countDominantLetters = (
+  shadeScores: OMRResultJson["answers"][number]["shadeScores"],
+  threshold: number,
+  ambiguityGap = 0.03
+) => {
+  const sorted = Object.values(shadeScores).sort((a, b) => b - a);
+  const top = sorted[0] ?? 0;
+  return Object.values(shadeScores).filter(
+    (score) => score >= threshold && top - score <= ambiguityGap
+  ).length;
+};
+
+const getItemIssues = (item: QueueFileItem): IssueKey[] => {
+  if (!item.result) {
+    return [];
+  }
+  const issues: IssueKey[] = [];
+  const pipeline = item.result.pipeline;
+  if ((pipeline.cornerFoundCount ?? 4) < 4 || (pipeline.cornerTriangulatedCount ?? 0) > 0) {
+    issues.push("warn-triangulated-corners");
+  }
+
+  const threshold = item.thresholdUsed ?? 0.28;
+  const multiDominantAnswers = item.result.answers.filter(
+    (answer) => countDominantLetters(answer.shadeScores, threshold) >= 2
+  ).length;
+  if (
+    item.result.answers.length > 0 &&
+    multiDominantAnswers >= Math.ceil(item.result.answers.length * 0.25)
+  ) {
+    issues.push("warn-many-multi-dominant-answers");
+  }
+
+  if (item.result.student.studentId.detected.some((digit) => digit === "")) {
+    issues.push("error-id-incomplete");
+  }
+  if ((item.result.student.examSet.selected?.length ?? 0) === 0) {
+    issues.push("error-no-exam-set");
+  }
+
+  return issues;
+};
 
 const makeFileId = (file: File, nonce: number) =>
   `${file.name}-${file.size}-${file.lastModified}-${nonce}`;
@@ -85,6 +164,7 @@ export function MainScannerDashboard() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
+  const [selectedIssueFilters, setSelectedIssueFilters] = useState<IssueKey[]>([]);
   const [darknessThreshold, setDarknessThreshold] = useState<number>(
     defaultSheetTemplate.scoring?.darknessThreshold ?? 0.28
   );
@@ -96,6 +176,47 @@ export function MainScannerDashboard() {
   useEffect(() => {
     queueRef.current = queue;
   }, [queue]);
+
+  const issueMapByFileId = useMemo(
+    () =>
+      new Map<string, IssueKey[]>(
+        queue.map((item) => [item.id, getItemIssues(item)])
+      ),
+    [queue]
+  );
+  const issueCounts = useMemo(() => {
+    const counts: Record<IssueKey, number> = {
+      "warn-triangulated-corners": 0,
+      "warn-many-multi-dominant-answers": 0,
+      "error-id-incomplete": 0,
+      "error-no-exam-set": 0
+    };
+    for (const issues of issueMapByFileId.values()) {
+      for (const issue of issues) {
+        counts[issue] += 1;
+      }
+    }
+    return counts;
+  }, [issueMapByFileId]);
+  const activeIssueDefinitions = useMemo(
+    () => issueDefinitions.filter((definition) => issueCounts[definition.key] > 0),
+    [issueCounts]
+  );
+  const filteredQueue = useMemo(() => {
+    if (selectedIssueFilters.length === 0) {
+      return queue;
+    }
+    return queue.filter((item) => {
+      const issues = issueMapByFileId.get(item.id) ?? [];
+      return selectedIssueFilters.some((key) => issues.includes(key));
+    });
+  }, [queue, issueMapByFileId, selectedIssueFilters]);
+
+  useEffect(() => {
+    setSelectedIssueFilters((current) =>
+      current.filter((key) => issueCounts[key] > 0)
+    );
+  }, [issueCounts]);
 
   useEffect(() => {
     void warmupOmrWorker().catch(() => {
@@ -188,6 +309,8 @@ export function MainScannerDashboard() {
     try {
       const prepared = await prepareImageForScan(item.file);
       const workerBuffer = prepared.rgbaBuffer.slice(0);
+      const thresholdUsed =
+        referenceTemplateRef.current.scoring?.darknessThreshold ?? 0.28;
       const scanned = await processSheetFileInWorker(
         workerBuffer,
         prepared.width,
@@ -204,6 +327,7 @@ export function MainScannerDashboard() {
         status: "done",
         result: scanned,
         detail: "Scan complete",
+        thresholdUsed,
         diagnostics: `Corners found ${scanned.pipeline.cornerFoundCount ?? 0}/4, used ${
           scanned.pipeline.cornerUsedCount ?? 0
         }/4, triangulated ${scanned.pipeline.cornerTriangulatedCount ?? 0}, warped ${
@@ -272,6 +396,27 @@ export function MainScannerDashboard() {
       setOverrideDraft("");
       setOverrideError(null);
     }
+  };
+
+  const deleteAllFiles = () => {
+    abortController?.abort();
+    setQueue([]);
+    setSelectedIssueFilters([]);
+    setScanStage(null);
+    setError(null);
+    if (overrideFileId) {
+      setOverrideFileId(null);
+      setOverrideDraft("");
+      setOverrideError(null);
+    }
+  };
+
+  const toggleIssueFilter = (key: IssueKey) => {
+    setSelectedIssueFilters((current) =>
+      current.includes(key)
+        ? current.filter((value) => value !== key)
+        : [...current, key]
+    );
   };
 
   const openOverrideDialog = (id: string) => {
@@ -654,19 +799,53 @@ export function MainScannerDashboard() {
               <button onClick={() => void exportResultsToExcel()} disabled={exportBusy || queue.every((item) => !item.result)}>
                 {exportBusy ? "Exporting..." : "Export Excel"}
               </button>
+              <button onClick={deleteAllFiles} disabled={queue.length === 0}>
+                Delete All
+              </button>
             </header>
+            {activeIssueDefinitions.length > 0 ? (
+              <div className="issue-chip-row">
+                {activeIssueDefinitions.map((definition) => (
+                  <button
+                    key={definition.key}
+                    type="button"
+                    className={`issue-chip issue-chip-${definition.kind}${
+                      selectedIssueFilters.includes(definition.key)
+                        ? " issue-chip-active"
+                        : ""
+                    }`}
+                    onClick={() => toggleIssueFilter(definition.key)}
+                  >
+                    {definition.label} ({issueCounts[definition.key]})
+                  </button>
+                ))}
+              </div>
+            ) : null}
             {error ? <p className="error">{error}</p> : null}
             {queue.length === 0 ? (
               <p className="subtle-text">No files added yet.</p>
+            ) : filteredQueue.length === 0 ? (
+              <p className="subtle-text">No files match selected warning/error filters.</p>
             ) : (
               <div className="queue-list">
-                {queue.map((item) => (
+                {filteredQueue.map((item) => (
                   <article key={item.id} className="queue-card">
                     <div>
                       <strong>{item.name}</strong>
                       <p className="subtle-text">{formatBytes(item.size)}</p>
                       {item.detail ? <p className="subtle-text">{item.detail}</p> : null}
                       {item.diagnostics ? <p className="subtle-text">{item.diagnostics}</p> : null}
+                      {(issueMapByFileId.get(item.id) ?? []).length > 0 ? (
+                        <p className="subtle-text">
+                          {(issueMapByFileId.get(item.id) ?? [])
+                            .map(
+                              (key) =>
+                                issueDefinitions.find((definition) => definition.key === key)?.label ??
+                                key
+                            )
+                            .join(" • ")}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="queue-actions">
                       <span className={`processing-badge processing-${item.status}`}>{item.status}</span>
