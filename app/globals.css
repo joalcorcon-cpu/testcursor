@@ -712,6 +712,7 @@ pre {
   border-radius: 10px;
   padding: 0.55rem;
   background: #f8f9fc;
+  overflow: auto;
 }
 
 .transform-preview-pane img {
@@ -719,6 +720,55 @@ pre {
   height: auto;
   border-radius: 8px;
   border: 1px solid #d0d5dd;
+}
+
+.transform-overlay-stage {
+  position: relative;
+  width: 100%;
+}
+
+.transform-hotspot-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.transform-overlay-checkbox {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px solid #667085;
+  background: rgba(255, 255, 255, 0.78);
+  color: #1d2939;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.transform-overlay-checkbox-active {
+  border-color: var(--brand-primary);
+  background: rgba(20, 40, 104, 0.88);
+  color: #ffffff;
+}
+
+.transform-overlay-checkbox-answer {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  font-size: 7px;
+}
+
+.transform-overlay-checkbox-student,
+.transform-overlay-checkbox-exam-code,
+.transform-overlay-checkbox-exam-set {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
 }
 
 .transform-summary-pane {
