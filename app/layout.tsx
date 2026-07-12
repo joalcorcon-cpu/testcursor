@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "OMR Web App",
-  description: "OpenCV.js OMR scanner with Supabase metadata storage."
+  description: "OpenCV.js OMR scanner with local premade templates."
 };
 
 export default function RootLayout({

@@ -36,6 +36,21 @@ const formatBytes = (bytes: number) => {
   return `${(kb / 1024).toFixed(1)} MB`;
 };
 
+const bundledReferences = [
+  {
+    id: "answer-sheet-reference",
+    title: "Answer Sheet Reference",
+    description: "Use this as a visual alignment guide while setting corners and ROIs.",
+    href: "/reference/answer-sheet-reference.svg"
+  },
+  {
+    id: "corner-marker-reference",
+    title: "Corner Marker Reference",
+    description: "Reference corner marker shape used by template matching and centroid checks.",
+    href: "/reference/corner-marker-reference.svg"
+  }
+] as const;
+
 export function MainScannerDashboard() {
   const [activeTemplate, setActiveTemplate] = useState<OMRTemplate>(() =>
     JSON.parse(JSON.stringify(defaultSheetTemplate))
@@ -448,6 +463,28 @@ export function MainScannerDashboard() {
               onChange={(event) => addFilesToQueue(Array.from(event.target.files ?? []))}
             />
             <label htmlFor="omr-file-input" className="drop-action">Browse Files</label>
+          </section>
+
+          <section className="reference-section">
+            <header>
+              <h3>Bundled Reference Images</h3>
+              <span className="subtle-text">Included in package</span>
+            </header>
+            <div className="reference-grid">
+              {bundledReferences.map((reference) => (
+                <article key={reference.id} className="reference-card">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={reference.href} alt={reference.title} />
+                  <div>
+                    <strong>{reference.title}</strong>
+                    <p className="subtle-text">{reference.description}</p>
+                    <a href={reference.href} target="_blank" rel="noreferrer">
+                      Open image
+                    </a>
+                  </div>
+                </article>
+              ))}
+            </div>
           </section>
 
           <section className="queue-section">

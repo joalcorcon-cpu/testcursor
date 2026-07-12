@@ -544,3 +544,53 @@ pre {
   color: #001a5e;
   background: #ffffff;
 }
+
+.reference-section {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.reference-section header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.reference-section h3 {
+  margin: 0;
+}
+
+.reference-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.reference-card {
+  border: 1px solid #d0d5dd;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 0.6rem;
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 0.6rem;
+  align-items: start;
+}
+
+.reference-card img {
+  width: 100%;
+  border: 1px solid #eaecf0;
+  border-radius: 8px;
+  background: #f8f9fc;
+}
+
+.reference-card p {
+  margin: 0.35rem 0 0.5rem;
+}
+
+.reference-card a {
+  color: #0030ad;
+  text-decoration: none;
+  font-weight: 600;
+}
