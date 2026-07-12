@@ -38,6 +38,16 @@ const formatBytes = (bytes: number) => {
   return `${(kb / 1024).toFixed(1)} MB`;
 };
 
+const excelHeaders = [
+  "file_name",
+  ...Array.from({ length: 6 }, (_, index) => `Student ID Number-${index}`),
+  ...Array.from({ length: 3 }, (_, index) => `Exam Code-${index}`),
+  "Exam Set-0",
+  ...Array.from({ length: 35 }, (_, index) => `Answer Sheet 1-${index}`),
+  ...Array.from({ length: 35 }, (_, index) => `Answer Sheet 2-${index}`),
+  ...Array.from({ length: 30 }, (_, index) => `Answer Sheet 3-${index}`)
+] as const;
+
 export function MainScannerDashboard() {
   const [activeTemplate, setActiveTemplate] = useState<OMRTemplate>(() =>
     JSON.parse(JSON.stringify(defaultSheetTemplate))
@@ -71,6 +81,7 @@ export function MainScannerDashboard() {
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
 
   useEffect(() => {
     activeTemplateRef.current = activeTemplate;
@@ -462,6 +473,63 @@ export function MainScannerDashboard() {
     }
   };
 
+  const buildExcelRow = (item: QueueFileItem): string[] => {
+    const row = new Array<string>(excelHeaders.length).fill("");
+    row[0] = item.name;
+    if (!item.result) {
+      return row;
+    }
+
+    const studentDigits = item.result.student.studentId.detected ?? [];
+    for (let index = 0; index < 6; index += 1) {
+      row[1 + index] = studentDigits[index] !== undefined ? String(studentDigits[index]) : "";
+    }
+
+    const examCodeDigits = item.result.student.examCode.detected ?? [];
+    for (let index = 0; index < 3; index += 1) {
+      row[7 + index] = examCodeDigits[index] !== undefined ? String(examCodeDigits[index]) : "";
+    }
+
+    row[10] = item.result.student.examSet.selected?.[0] ?? "";
+
+    for (let q = 1; q <= 100; q += 1) {
+      const answer = item.result.answers.find((entry) => entry.q === q);
+      const answerText = answer?.selected?.join(",") ?? "";
+      if (q <= 35) {
+        row[11 + (q - 1)] = answerText;
+      } else if (q <= 70) {
+        row[46 + (q - 36)] = answerText;
+      } else {
+        row[81 + (q - 71)] = answerText;
+      }
+    }
+
+    return row;
+  };
+
+  const exportResultsToExcel = async () => {
+    const doneRows = queueRef.current.filter((item) => item.result);
+    if (doneRows.length === 0) {
+      setError("No processed JSON results available to export.");
+      return;
+    }
+    setExportBusy(true);
+    setError(null);
+    try {
+      const XLSX = await import("xlsx");
+      const rows = [Array.from(excelHeaders), ...doneRows.map((item) => buildExcelRow(item))];
+      const sheet = XLSX.utils.aoa_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, sheet, "results");
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      XLSX.writeFile(workbook, `aerc-omr-results-${timestamp}.xlsx`);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : "Unable to export Excel file.");
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
   return (
     <main className="main dashboard-main">
       <header className="appbar">
@@ -543,6 +611,9 @@ export function MainScannerDashboard() {
               {scanStage ? <span className="subtle-text">{scanStage}</span> : null}
               {loading ? <button onClick={cancelBatch}>Cancel</button> : null}
               {!scanTemplateReady ? <span className="subtle-text">Loading template...</span> : null}
+              <button onClick={() => void exportResultsToExcel()} disabled={exportBusy || queue.every((item) => !item.result)}>
+                {exportBusy ? "Exporting..." : "Export Excel"}
+              </button>
             </header>
             {error ? <p className="error">{error}</p> : null}
             {queue.length === 0 ? (
