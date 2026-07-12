@@ -203,6 +203,7 @@ export function MainScannerDashboard() {
   const fileTemplateOverridesRef = useRef<
     Record<string, Partial<Pick<OMRTemplate, "cornerSnapshots" | "cornerSearchWindows">>>
   >({});
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const queueRef = useRef<QueueFileItem[]>([]);
 
   const [queue, setQueue] = useState<QueueFileItem[]>([]);
@@ -369,23 +370,29 @@ export function MainScannerDashboard() {
     if (files.length === 0) {
       return;
     }
-    const existing = new Set(queueRef.current.map((item) => `${item.name}:${item.size}:${item.file.lastModified}`));
-    const seed = Date.now();
-    const newItems = files
-      .filter((file) => /image\/(png|jpeg|webp)/.test(file.type))
-      .filter((file) => !existing.has(`${file.name}:${file.size}:${file.lastModified}`))
-      .map((file, index) => ({
-        id: makeFileId(file, seed + index),
-        file,
-        name: file.name,
-        size: file.size,
-        status: "queued" as const,
-        result: null as OMRResultJson | null
-      }));
-    if (newItems.length > 0) {
-      setQueue((current) => [...current, ...newItems]);
-      setAutoProcessTick((value) => value + 1);
-    }
+    setQueue((current) => {
+      const existing = new Set(
+        current.map((item) => `${item.name}:${item.size}:${item.file.lastModified}`)
+      );
+      const seed = Date.now();
+      const newItems = files
+        .filter((file) => /image\/(png|jpeg|webp)/.test(file.type))
+        .filter((file) => !existing.has(`${file.name}:${file.size}:${file.lastModified}`))
+        .map((file, index) => ({
+          id: makeFileId(file, seed + index),
+          file,
+          name: file.name,
+          size: file.size,
+          status: "queued" as const,
+          result: null as OMRResultJson | null
+        }));
+      if (newItems.length > 0) {
+        setAutoProcessTick((value) => value + 1);
+      }
+      const nextQueue = [...current, ...newItems];
+      queueRef.current = nextQueue;
+      return nextQueue;
+    });
   };
 
   const processOneFile = async (
@@ -483,7 +490,11 @@ export function MainScannerDashboard() {
     if (target?.status === "processing") {
       abortController?.abort();
     }
-    setQueue((current) => current.filter((item) => item.id !== id));
+    setQueue((current) => {
+      const nextQueue = current.filter((item) => item.id !== id);
+      queueRef.current = nextQueue;
+      return nextQueue;
+    });
     delete fileTemplateOverridesRef.current[id];
     if (overrideFileId === id) {
       setOverrideFileId(null);
@@ -506,7 +517,11 @@ export function MainScannerDashboard() {
   const deleteAllFiles = () => {
     abortController?.abort();
     setQueue([]);
+    queueRef.current = [];
     fileTemplateOverridesRef.current = {};
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
     setSelectedIssueFilters([]);
     setScanStage(null);
     setError(null);
@@ -1158,11 +1173,15 @@ export function MainScannerDashboard() {
             <p>Supports PNG, JPG, or WEBP.</p>
             <input
               id="omr-file-input"
+              ref={fileInputRef}
               className="drop-area-input"
               type="file"
               multiple
               accept="image/png,image/jpeg,image/webp"
-              onChange={(event) => addFilesToQueue(Array.from(event.target.files ?? []))}
+              onChange={(event) => {
+                addFilesToQueue(Array.from(event.target.files ?? []));
+                event.currentTarget.value = "";
+              }}
             />
             <label htmlFor="omr-file-input" className="drop-action">Browse Files</label>
           </section>
