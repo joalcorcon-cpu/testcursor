@@ -629,6 +629,12 @@ pre {
   background: #fef3f2;
 }
 
+.issue-chip-ok {
+  border-color: #32d583;
+  color: #027a48;
+  background: #ecfdf3;
+}
+
 .issue-chip-active {
   box-shadow: 0 0 0 2px rgba(20, 40, 104, 0.15) inset;
   font-weight: 700;
@@ -661,6 +667,59 @@ pre {
   gap: 0.5rem;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.queue-icon-button {
+  width: 2rem;
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #344054;
+}
+
+.queue-icon-button-destructive {
+  border-color: #fda29b;
+  color: #b42318;
+  background: #fef3f2;
+}
+
+.queue-icon-button-destructive:hover:not(:disabled) {
+  background: #fee4e2;
+}
+
+.destructive-filled {
+  border-color: #d92d20;
+  background: #d92d20;
+  color: #ffffff;
+}
+
+.destructive-filled:hover:not(:disabled) {
+  background: #b42318;
+}
+
+.excel-export-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.excel-icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 0.2rem;
+  border: 1px solid #027a48;
+  background: #12b76a;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  line-height: 1;
+  font-weight: 800;
 }
 
 .override-backdrop {
