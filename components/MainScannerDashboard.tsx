@@ -70,6 +70,9 @@ export function MainScannerDashboard() {
   const [cornerReferencesReady, setCornerReferencesReady] = useState(false);
   const [autoProcessTick, setAutoProcessTick] = useState(0);
   const runBatchProcessRef = useRef<(() => Promise<void>) | null>(null);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
 
   useEffect(() => {
     activeTemplateRef.current = activeTemplate;
@@ -83,6 +86,23 @@ export function MainScannerDashboard() {
     void warmupOmrWorker().catch(() => {
       // Warmup is best-effort.
     });
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const media = window.matchMedia("(max-width: 960px)");
+    const onChange = () => {
+      const mobile = media.matches;
+      setIsMobileViewport(mobile);
+      if (!mobile) {
+        setIsMobileDrawerOpen(false);
+      }
+    };
+    onChange();
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
   }, []);
 
   useEffect(() => {
@@ -443,27 +463,57 @@ export function MainScannerDashboard() {
     await rebuildVisualStepsForTemplate(nextTemplate, "Refreshing ROI preview...");
   };
 
+  const handleSidebarToggle = () => {
+    if (isMobileViewport) {
+      setIsMobileDrawerOpen((value) => !value);
+      return;
+    }
+    setIsSidebarCollapsed((value) => !value);
+  };
+
+  const closeMobileDrawer = () => {
+    if (isMobileViewport) {
+      setIsMobileDrawerOpen(false);
+    }
+  };
+
   return (
     <main className="main dashboard-main">
       <h1 className="dashboard-title">Scanner Dashboard</h1>
-      <section className="dashboard-shell">
+      <section
+        className={`dashboard-shell${isSidebarCollapsed ? " sidebar-collapsed" : ""}${
+          isMobileDrawerOpen ? " drawer-open" : ""
+        }`}
+      >
+        <button
+          className={`drawer-backdrop${isMobileDrawerOpen ? " drawer-backdrop-visible" : ""}`}
+          onClick={closeMobileDrawer}
+          aria-label="Close sidebar drawer"
+          type="button"
+        />
         <aside className="dashboard-sidebar">
           <div className="sidebar-brand">
             <strong>AERC</strong>
             <span>Since 1999</span>
           </div>
+          <button className="sidebar-close" onClick={closeMobileDrawer} type="button">
+            Close
+          </button>
           <nav className="sidebar-nav">
-            <button className="sidebar-link sidebar-link-active">Scanner</button>
-            <button className="sidebar-link">Results</button>
-            <button className="sidebar-link">Templates</button>
-            <button className="sidebar-link">History</button>
-            <button className="sidebar-link">Settings</button>
+            <button className="sidebar-link sidebar-link-active" onClick={closeMobileDrawer}>Scanner</button>
+            <button className="sidebar-link" onClick={closeMobileDrawer}>Results</button>
+            <button className="sidebar-link" onClick={closeMobileDrawer}>Templates</button>
+            <button className="sidebar-link" onClick={closeMobileDrawer}>History</button>
+            <button className="sidebar-link" onClick={closeMobileDrawer}>Settings</button>
           </nav>
         </aside>
 
         <section className="dashboard-content">
           <header className="dashboard-header">
             <div>
+              <button className="sidebar-toggle" onClick={handleSidebarToggle} type="button">
+                {isMobileViewport ? "Menu" : isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+              </button>
               <h2>OMR Scanner</h2>
               <p>Upload OMR sheets for automated grading and analysis</p>
               <p className="subtle-text">

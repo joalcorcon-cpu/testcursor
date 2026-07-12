@@ -369,6 +369,18 @@ pre {
   border-radius: 14px;
   background: #ffffff;
   overflow: hidden;
+  position: relative;
+}
+
+.dashboard-shell.sidebar-collapsed {
+  grid-template-columns: 0 1fr;
+}
+
+.dashboard-shell.sidebar-collapsed .dashboard-sidebar {
+  width: 0;
+  padding: 0;
+  border-right: 0;
+  overflow: hidden;
 }
 
 .dashboard-sidebar {
@@ -378,6 +390,10 @@ pre {
   display: grid;
   align-content: start;
   gap: 1rem;
+}
+
+.sidebar-close {
+  display: none;
 }
 
 .sidebar-brand {
@@ -424,6 +440,10 @@ pre {
 
 .dashboard-header h2 {
   margin: 0;
+}
+
+.sidebar-toggle {
+  margin-bottom: 0.5rem;
 }
 
 .dashboard-header p {
@@ -627,4 +647,59 @@ pre {
   color: #0030ad;
   text-decoration: none;
   font-weight: 600;
+}
+
+.drawer-backdrop {
+  display: none;
+}
+
+@media (max-width: 960px) {
+  .dashboard-shell {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .dashboard-shell.sidebar-collapsed {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100dvh;
+    width: min(280px, 85vw);
+    z-index: 1400;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    border-right: 1px solid #eaecf0;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.2);
+  }
+
+  .dashboard-shell.drawer-open .dashboard-sidebar {
+    transform: translateX(0);
+  }
+
+  .drawer-backdrop {
+    border: 0;
+    padding: 0;
+    margin: 0;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 1300;
+    opacity: 0;
+    pointer-events: none;
+    display: block;
+  }
+
+  .drawer-backdrop-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .sidebar-close {
+    display: inline-block;
+    justify-self: start;
+  }
 }
