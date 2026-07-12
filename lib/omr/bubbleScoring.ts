@@ -88,7 +88,7 @@ export const pickDigitByDominance = (
   options: DigitDominanceOptions = {}
 ) => {
   if (scores.length === 0) {
-    return { detected: -1, confidence: 0 };
+    return { detected: "" as const, confidence: 0 };
   }
   const {
     minTopScore = 0.12,
@@ -116,7 +116,7 @@ export const pickDigitByDominance = (
     top.score >= meanOthers + stdOthers * minStdMultiplier;
 
   return {
-    detected: isDominant ? top.index : -1,
+    detected: isDominant ? top.index : ("" as const),
     confidence: clamp(top.score - second.score, 0, 1)
   };
 };

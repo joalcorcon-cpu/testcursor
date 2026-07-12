@@ -103,7 +103,7 @@ const pickDigitByDominance = (
   { minTopScore = 0.12, minGapToSecond = 0.025, minStdMultiplier = 1.2 } = {}
 ) => {
   if (!scores || scores.length === 0) {
-    return { detected: -1, confidence: 0 };
+    return { detected: "", confidence: 0 };
   }
   const ranked = scores
     .map((score, index) => ({ score, index }))
@@ -125,7 +125,7 @@ const pickDigitByDominance = (
     top.score - second.score >= minGapToSecond &&
     top.score >= meanOthers + stdOthers * minStdMultiplier;
   return {
-    detected: isDominant ? top.index : -1,
+    detected: isDominant ? top.index : "",
     confidence: clamp(top.score - second.score, 0, 1)
   };
 };

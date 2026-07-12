@@ -483,7 +483,7 @@ export function MainScannerDashboard() {
     const studentDigits = item.result.student.studentId.detected ?? [];
     for (let index = 0; index < 6; index += 1) {
       row[1 + index] =
-        studentDigits[index] !== undefined && studentDigits[index] >= 0
+        typeof studentDigits[index] === "number" && studentDigits[index] >= 0
           ? String(studentDigits[index])
           : "";
     }
@@ -491,7 +491,7 @@ export function MainScannerDashboard() {
     const examCodeDigits = item.result.student.examCode.detected ?? [];
     for (let index = 0; index < 3; index += 1) {
       row[7 + index] =
-        examCodeDigits[index] !== undefined && examCodeDigits[index] >= 0
+        typeof examCodeDigits[index] === "number" && examCodeDigits[index] >= 0
           ? String(examCodeDigits[index])
           : "";
     }

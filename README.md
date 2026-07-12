@@ -14,8 +14,8 @@ This project is a web-based OMR scanner for student answer sheets.
 
 Scan output contains only bubble-related data:
 
-- `student.studentId`: per-digit detected index + shade scores (0-9 rows); returns `-1` when no dominant shade is detected
-- `student.examCode`: per-digit detected index + shade scores; returns `-1` when no dominant shade is detected
+- `student.studentId`: per-digit detected index + shade scores (0-9 rows); returns blank (`""`) when no dominant shade is detected
+- `student.examCode`: per-digit detected index + shade scores; returns blank (`""`) when no dominant shade is detected
 - `student.examSet`: selected set option(s) + shade scores/confidence
 - `answers[]`: per question selected option(s), shade scores, confidence, ambiguous flag
 

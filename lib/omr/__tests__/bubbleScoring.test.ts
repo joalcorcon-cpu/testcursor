@@ -16,7 +16,7 @@ test("pickSelections returns ambiguous when top scores are close", () => {
 
 test("pickDigitByDominance marks blank when none is dominant", () => {
   const result = pickDigitByDominance([0.06, 0.07, 0.05, 0.08, 0.06, 0.07, 0.06, 0.05, 0.07, 0.06]);
-  assert.equal(result.detected, -1);
+  assert.equal(result.detected, "");
 });
 
 test("pickDigitByDominance returns detected index for clear mark", () => {
