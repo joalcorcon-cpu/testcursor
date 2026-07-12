@@ -566,7 +566,14 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
   ].filter(Boolean);
 
   if (orderedMarkers.length !== 4) {
-    return { valid: false, corners: [], debug: [] };
+    return {
+      valid: false,
+      corners: [],
+      debug: [],
+      foundByDetectionCount: 0,
+      foundAfterTriangulationCount: 0,
+      triangulatedCount: 0
+    };
   }
 
   const hasAllCornerSnapshots = orderedMarkers.every(
@@ -763,7 +770,10 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
     return {
       valid: false,
       corners: [],
-      debug: orderedMarkers.map((marker) => debugById.get(marker.id))
+      debug: orderedMarkers.map((marker) => debugById.get(marker.id)),
+      foundByDetectionCount: initialFoundCount,
+      foundAfterTriangulationCount: Object.keys(pointsById).length,
+      triangulatedCount: Math.max(0, Object.keys(pointsById).length - initialFoundCount)
     };
   }
   const corners = orderedMarkers.map((marker) => ({
@@ -790,21 +800,34 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
     return {
       valid: false,
       corners: [],
-      debug: cornerDetections.map((entry) => entry.debug)
+      debug: cornerDetections.map((entry) => entry.debug),
+      foundByDetectionCount: initialFoundCount,
+      foundAfterTriangulationCount: Object.keys(pointsById).length,
+      triangulatedCount: Math.max(0, Object.keys(pointsById).length - initialFoundCount)
     };
   }
 
   return {
     valid: true,
     corners,
-    debug: orderedMarkers.map((marker) => debugById.get(marker.id))
+    debug: orderedMarkers.map((marker) => debugById.get(marker.id)),
+    foundByDetectionCount: initialFoundCount,
+    foundAfterTriangulationCount: Object.keys(pointsById).length,
+    triangulatedCount: Math.max(0, Object.keys(pointsById).length - initialFoundCount)
   };
 };
 
 const rectifySheet = (cv, gray, thresholded, template, otsuThreshold) => {
   const cornerResolution = resolveSheetCorners(cv, gray, thresholded, template, otsuThreshold);
   if (!cornerResolution.valid) {
-    return { thresholded, warped: false };
+    return {
+      thresholded,
+      warped: false,
+      cornerDebug: cornerResolution.debug,
+      cornerFoundCount: cornerResolution.foundByDetectionCount,
+      cornerUsedCount: cornerResolution.foundAfterTriangulationCount,
+      cornerTriangulatedCount: cornerResolution.triangulatedCount
+    };
   }
 
   const srcPoints = cv.matFromArray(
@@ -844,7 +867,14 @@ const rectifySheet = (cv, gray, thresholded, template, otsuThreshold) => {
   warpedGray.delete();
   thresholded.delete();
 
-  return { thresholded: warpedBinary, warped: true };
+  return {
+    thresholded: warpedBinary,
+    warped: true,
+    cornerDebug: cornerResolution.debug,
+    cornerFoundCount: cornerResolution.foundByDetectionCount,
+    cornerUsedCount: cornerResolution.foundAfterTriangulationCount,
+    cornerTriangulatedCount: cornerResolution.triangulatedCount
+  };
 };
 
 const buildRectifiedPreview = async ({ requestId, imageRgbaBuffer, width, height, template }) => {
@@ -998,7 +1028,10 @@ const runScan = async ({ requestId, imageRgbaBuffer, width, height, template }) 
       pipeline: {
         warped: rectified.warped,
         width: thresholded.cols,
-        height: thresholded.rows
+        height: thresholded.rows,
+        cornerFoundCount: rectified.cornerFoundCount,
+        cornerUsedCount: rectified.cornerUsedCount,
+        cornerTriangulatedCount: rectified.cornerTriangulatedCount
       }
     };
   } finally {

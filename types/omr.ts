@@ -100,6 +100,9 @@ export interface OMRResultJson {
     warped: boolean;
     width: number;
     height: number;
+    cornerFoundCount?: number;
+    cornerUsedCount?: number;
+    cornerTriangulatedCount?: number;
   };
 }
 

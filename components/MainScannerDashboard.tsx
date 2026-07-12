@@ -26,6 +26,7 @@ interface QueueFileItem {
   status: QueueStatus;
   result: OMRResultJson | null;
   detail?: string;
+  diagnostics?: string;
 }
 
 const makeFileId = (file: File, nonce: number) =>
@@ -67,6 +68,8 @@ export function MainScannerDashboard() {
   const [visualSteps, setVisualSteps] = useState<VisualParseStep[]>([]);
   const [activeVisualFileId, setActiveVisualFileId] = useState<string | null>(null);
   const [cornerReferencesReady, setCornerReferencesReady] = useState(false);
+  const [autoProcessTick, setAutoProcessTick] = useState(0);
+  const runBatchProcessRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     activeTemplateRef.current = activeTemplate;
@@ -145,6 +148,7 @@ export function MainScannerDashboard() {
       }));
     if (newItems.length > 0) {
       setQueue((current) => [...current, ...newItems]);
+      setAutoProcessTick((value) => value + 1);
     }
   };
 
@@ -177,7 +181,12 @@ export function MainScannerDashboard() {
         ...current,
         status: "done",
         result: scanned,
-        detail: "Scan complete"
+        detail: "Scan complete",
+        diagnostics: `Corners found ${scanned.pipeline.cornerFoundCount ?? 0}/4, used ${
+          scanned.pipeline.cornerUsedCount ?? 0
+        }/4, triangulated ${scanned.pipeline.cornerTriangulatedCount ?? 0}, warped ${
+          scanned.pipeline.warped ? "yes" : "no"
+        }`
       }));
     } catch (scanError) {
       updateQueueItem(item.id, (current) => ({
@@ -215,6 +224,16 @@ export function MainScannerDashboard() {
       setScanStage(null);
     }
   };
+  runBatchProcessRef.current = runBatchProcess;
+
+  useEffect(() => {
+    if (!scanTemplateReady || loading) {
+      return;
+    }
+    if (queueRef.current.some((item) => item.status === "queued")) {
+      void runBatchProcessRef.current?.();
+    }
+  }, [autoProcessTick, loading, scanTemplateReady]);
 
   const cancelBatch = () => {
     abortController?.abort();
@@ -530,6 +549,7 @@ export function MainScannerDashboard() {
                       <strong>{item.name}</strong>
                       <p className="subtle-text">{formatBytes(item.size)}</p>
                       {item.detail ? <p className="subtle-text">{item.detail}</p> : null}
+                      {item.diagnostics ? <p className="subtle-text">{item.diagnostics}</p> : null}
                     </div>
                     <div className="queue-actions">
                       <span className={`processing-badge processing-${item.status}`}>{item.status}</span>
