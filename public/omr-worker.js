@@ -565,7 +565,7 @@ const buildCornerAngleDiagnostics = (corners) => {
   );
   return {
     angles,
-    uneven: maxDeviation > 12
+    uneven: maxDeviation > 10
   };
 };
 
@@ -871,7 +871,7 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
   const foundAfterTriangulationCount = Object.keys(pointsById).length;
   const triangulatedFromMissingCount = Math.max(0, foundAfterTriangulationCount - initialFoundCount);
   let correctedMisalignedCount = 0;
-  if (initialFoundCount === 4 && angleDiagnostics.uneven) {
+  if (initialFoundCount === 4 && computeCornerMaxDeviation(angleDiagnostics.angles) > 8) {
     const currentDeviation = computeCornerMaxDeviation(angleDiagnostics.angles);
     let bestCorrection = null;
     for (const marker of orderedMarkers) {
@@ -903,7 +903,7 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
       }
       const candidateDiagnostics = buildCornerAngleDiagnostics(candidateCorners);
       const candidateDeviation = computeCornerMaxDeviation(candidateDiagnostics.angles);
-      if (candidateDeviation + 2 >= currentDeviation) {
+      if (candidateDeviation + 1 >= currentDeviation) {
         continue;
       }
       if (!bestCorrection || candidateDeviation < bestCorrection.deviation) {
@@ -916,7 +916,7 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
         };
       }
     }
-    if (bestCorrection && bestCorrection.deviation <= 12) {
+    if (bestCorrection && bestCorrection.deviation + 1 < currentDeviation) {
       pointsById[bestCorrection.id] = bestCorrection.point;
       corners = bestCorrection.corners;
       angleDiagnostics = bestCorrection.diagnostics;
