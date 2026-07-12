@@ -482,18 +482,16 @@ export function MainScannerDashboard() {
 
     const studentDigits = item.result.student.studentId.detected ?? [];
     for (let index = 0; index < 6; index += 1) {
+      const digit = studentDigits[index];
       row[1 + index] =
-        typeof studentDigits[index] === "number" && studentDigits[index] >= 0
-          ? String(studentDigits[index])
-          : "";
+        typeof digit === "number" && digit >= 0 ? String(digit) : "";
     }
 
     const examCodeDigits = item.result.student.examCode.detected ?? [];
     for (let index = 0; index < 3; index += 1) {
+      const digit = examCodeDigits[index];
       row[7 + index] =
-        typeof examCodeDigits[index] === "number" && examCodeDigits[index] >= 0
-          ? String(examCodeDigits[index])
-          : "";
+        typeof digit === "number" && digit >= 0 ? String(digit) : "";
     }
 
     row[10] = item.result.student.examSet.selected?.[0] ?? "";
