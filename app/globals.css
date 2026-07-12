@@ -740,6 +740,7 @@ pre {
   border: 2px solid #98a2b3;
   background: transparent;
   opacity: 1;
+  box-sizing: border-box;
   color: #1d2939;
   font-size: 9px;
   font-weight: 700;
@@ -755,6 +756,10 @@ pre {
   color: #0f172a;
 }
 
+.transform-overlay-checkbox-vacant {
+  border-color: #eab308;
+}
+
 .transform-overlay-checkbox-answer {
   border-radius: 3px;
   font-size: 7px;
@@ -763,15 +768,7 @@ pre {
 .transform-overlay-checkbox-student,
 .transform-overlay-checkbox-exam-code,
 .transform-overlay-checkbox-exam-set {
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
-}
-
-.transform-overlay-row-highlight {
-  position: absolute;
-  pointer-events: none;
-  background: transparent;
-  border: 2px solid #eab308;
-  border-radius: 4px;
+  box-shadow: none;
 }
 
 .transform-summary-pane {
@@ -827,11 +824,6 @@ pre {
 
 .transform-answer-row:last-child {
   margin-bottom: 0;
-}
-
-.transform-answer-row-vacant {
-  background: transparent;
-  border-color: #eab308;
 }
 
 .transform-override-panel {
