@@ -167,6 +167,22 @@ const buildTransformSummary = (result: OMRResultJson, threshold: number): string
   ];
 };
 
+const computeRowBounds = (regions: Array<{ x: number; y: number; w: number; h: number }>) => {
+  if (regions.length === 0) {
+    return null;
+  }
+  const minX = Math.min(...regions.map((region) => region.x));
+  const minY = Math.min(...regions.map((region) => region.y));
+  const maxX = Math.max(...regions.map((region) => region.x + region.w));
+  const maxY = Math.max(...regions.map((region) => region.y + region.h));
+  return {
+    x: minX,
+    y: minY,
+    w: Math.max(0, maxX - minX),
+    h: Math.max(0, maxY - minY)
+  };
+};
+
 export function MainScannerDashboard() {
   const [activeTemplate, setActiveTemplate] = useState<OMRTemplate>(() =>
     JSON.parse(JSON.stringify(defaultSheetTemplate))
@@ -1171,6 +1187,99 @@ export function MainScannerDashboard() {
                       <img src={transformReview.overlayUrl} alt="Transformed ROI overlay" />
                       {transformReviewItem?.result ? (
                         <div className="transform-hotspot-layer" aria-label="Interactive ROI override layer">
+                          {referenceTemplateRef.current.studentId.columns.map((row, rowIndex) => {
+                            const isVacant =
+                              (transformReviewItem.result?.student.studentId.detected[rowIndex] ?? "") === "";
+                            if (!isVacant) {
+                              return null;
+                            }
+                            const rowBounds = computeRowBounds(row);
+                            if (!rowBounds) {
+                              return null;
+                            }
+                            return (
+                              <div
+                                key={`highlight-student-${rowIndex}`}
+                                className="transform-overlay-row-highlight"
+                                style={{
+                                  left: `${rowBounds.x * 100}%`,
+                                  top: `${rowBounds.y * 100}%`,
+                                  width: `${rowBounds.w * 100}%`,
+                                  height: `${rowBounds.h * 100}%`
+                                }}
+                              />
+                            );
+                          })}
+                          {referenceTemplateRef.current.examCode.columns.map((row, rowIndex) => {
+                            const isVacant =
+                              (transformReviewItem.result?.student.examCode.detected[rowIndex] ?? "") === "";
+                            if (!isVacant) {
+                              return null;
+                            }
+                            const rowBounds = computeRowBounds(row);
+                            if (!rowBounds) {
+                              return null;
+                            }
+                            return (
+                              <div
+                                key={`highlight-exam-code-${rowIndex}`}
+                                className="transform-overlay-row-highlight"
+                                style={{
+                                  left: `${rowBounds.x * 100}%`,
+                                  top: `${rowBounds.y * 100}%`,
+                                  width: `${rowBounds.w * 100}%`,
+                                  height: `${rowBounds.h * 100}%`
+                                }}
+                              />
+                            );
+                          })}
+                          {(() => {
+                            const isVacant =
+                              (transformReviewItem.result?.student.examSet.selected?.length ?? 0) === 0;
+                            if (!isVacant) {
+                              return null;
+                            }
+                            const rowBounds = computeRowBounds(
+                              Object.values(referenceTemplateRef.current.examSet.choices)
+                            );
+                            if (!rowBounds) {
+                              return null;
+                            }
+                            return (
+                              <div
+                                key="highlight-exam-set"
+                                className="transform-overlay-row-highlight"
+                                style={{
+                                  left: `${rowBounds.x * 100}%`,
+                                  top: `${rowBounds.y * 100}%`,
+                                  width: `${rowBounds.w * 100}%`,
+                                  height: `${rowBounds.h * 100}%`
+                                }}
+                              />
+                            );
+                          })()}
+                          {referenceTemplateRef.current.answers.map((answer) => {
+                            const selected = answerSelectionByQuestion.get(answer.question) ?? [];
+                            if (selected.length > 0) {
+                              return null;
+                            }
+                            const rowBounds = computeRowBounds(Object.values(answer.choices));
+                            if (!rowBounds) {
+                              return null;
+                            }
+                            return (
+                              <div
+                                key={`highlight-answer-${answer.question}`}
+                                className="transform-overlay-row-highlight"
+                                style={{
+                                  left: `${rowBounds.x * 100}%`,
+                                  top: `${rowBounds.y * 100}%`,
+                                  width: `${rowBounds.w * 100}%`,
+                                  height: `${rowBounds.h * 100}%`
+                                }}
+                              />
+                            );
+                          })}
                           {referenceTemplateRef.current.studentId.columns.flatMap((row, rowIndex) =>
                             row.map((bubble, digit) => {
                               const active =

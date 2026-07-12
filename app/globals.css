@@ -737,9 +737,9 @@ pre {
   position: absolute;
   pointer-events: auto;
   border-radius: 4px;
-  border: 1px solid #98a2b3;
-  background: rgba(255, 255, 255, 0.5);
-  opacity: 0.5;
+  border: 2px solid #16a34a;
+  background: transparent;
+  opacity: 1;
   color: #1d2939;
   font-size: 9px;
   font-weight: 700;
@@ -764,6 +764,14 @@ pre {
 .transform-overlay-checkbox-exam-code,
 .transform-overlay-checkbox-exam-set {
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+
+.transform-overlay-row-highlight {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(250, 204, 21, 0.38);
+  border: 1px solid rgba(202, 138, 4, 0.7);
+  border-radius: 4px;
 }
 
 .transform-summary-pane {
