@@ -1185,8 +1185,10 @@ export function MainScannerDashboard() {
                                     active ? " transform-overlay-checkbox-active" : ""
                                   }`}
                                   style={{
-                                    left: `${(bubble.x + bubble.w / 2) * 100}%`,
-                                    top: `${(bubble.y + bubble.h / 2) * 100}%`
+                                    left: `${bubble.x * 100}%`,
+                                    top: `${bubble.y * 100}%`,
+                                    width: `${bubble.w * 100}%`,
+                                    height: `${bubble.h * 100}%`
                                   }}
                                   onClick={() =>
                                     applyTransformDigitOverride(
@@ -1215,8 +1217,10 @@ export function MainScannerDashboard() {
                                     active ? " transform-overlay-checkbox-active" : ""
                                   }`}
                                   style={{
-                                    left: `${(bubble.x + bubble.w / 2) * 100}%`,
-                                    top: `${(bubble.y + bubble.h / 2) * 100}%`
+                                    left: `${bubble.x * 100}%`,
+                                    top: `${bubble.y * 100}%`,
+                                    width: `${bubble.w * 100}%`,
+                                    height: `${bubble.h * 100}%`
                                   }}
                                   onClick={() =>
                                     applyTransformDigitOverride(
@@ -1246,8 +1250,10 @@ export function MainScannerDashboard() {
                                   active ? " transform-overlay-checkbox-active" : ""
                                 }`}
                                 style={{
-                                  left: `${(bubble.x + bubble.w / 2) * 100}%`,
-                                  top: `${(bubble.y + bubble.h / 2) * 100}%`
+                                  left: `${bubble.x * 100}%`,
+                                  top: `${bubble.y * 100}%`,
+                                  width: `${bubble.w * 100}%`,
+                                  height: `${bubble.h * 100}%`
                                 }}
                                 onClick={() => applyTransformExamSetOverride(choice)}
                               >
@@ -1271,8 +1277,10 @@ export function MainScannerDashboard() {
                                     active ? " transform-overlay-checkbox-active" : ""
                                   }`}
                                   style={{
-                                    left: `${(bubble.x + bubble.w / 2) * 100}%`,
-                                    top: `${(bubble.y + bubble.h / 2) * 100}%`
+                                    left: `${bubble.x * 100}%`,
+                                    top: `${bubble.y * 100}%`,
+                                    width: `${bubble.w * 100}%`,
+                                    height: `${bubble.h * 100}%`
                                   }}
                                   onClick={() => applyTransformAnswerOverride(answer.question, choice)}
                                 >
@@ -1299,6 +1307,29 @@ export function MainScannerDashboard() {
                     Override values directly on the transformed image by clicking the checkbox chips on each ROI
                     bubble (Student ID, Exam Code, Exam Set, and Answers 1–100).
                   </p>
+                  {transformReviewItem?.result ? (
+                    <div className="transform-answer-panel">
+                      <h4>Detected Answers</h4>
+                      <div className="transform-answer-list" role="list" aria-label="Detected answers list">
+                        {transformReviewItem.result.answers.map((answer) => {
+                          const selected = answer.selected ?? [];
+                          const isVacant = selected.length === 0;
+                          return (
+                            <div
+                              key={`answer-row-${answer.q}`}
+                              role="listitem"
+                              className={`transform-answer-row${
+                                isVacant ? " transform-answer-row-vacant" : ""
+                              }`}
+                            >
+                              <strong>Q{String(answer.q).padStart(3, "0")}</strong>
+                              <span>{isVacant ? "(vacant)" : selected.join(",")}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : null}
