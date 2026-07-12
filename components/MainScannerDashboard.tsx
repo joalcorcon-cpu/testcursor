@@ -1307,6 +1307,29 @@ export function MainScannerDashboard() {
                     Override values directly on the transformed image by clicking the checkbox chips on each ROI
                     bubble (Student ID, Exam Code, Exam Set, and Answers 1–100).
                   </p>
+                  {transformReviewItem?.result ? (
+                    <div className="transform-answer-panel">
+                      <h4>Detected Answers</h4>
+                      <div className="transform-answer-list" role="list" aria-label="Detected answers list">
+                        {transformReviewItem.result.answers.map((answer) => {
+                          const selected = answer.selected ?? [];
+                          const isVacant = selected.length === 0;
+                          return (
+                            <div
+                              key={`answer-row-${answer.q}`}
+                              role="listitem"
+                              className={`transform-answer-row${
+                                isVacant ? " transform-answer-row-vacant" : ""
+                              }`}
+                            >
+                              <strong>Q{String(answer.q).padStart(3, "0")}</strong>
+                              <span>{isVacant ? "(vacant)" : selected.join(",")}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : null}
