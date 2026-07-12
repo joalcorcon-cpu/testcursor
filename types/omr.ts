@@ -77,7 +77,7 @@ export interface OMRAnswerJson {
 }
 
 export interface OMRDigitJson {
-  detected: number[];
+  detected: Array<number | "">;
   shadeScores: number[][];
 }
 

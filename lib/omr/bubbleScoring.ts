@@ -9,6 +9,12 @@ import type { CvMat } from "@/lib/omr/opencvLoader";
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
+interface DigitDominanceOptions {
+  minTopScore?: number;
+  minGapToSecond?: number;
+  minStdMultiplier?: number;
+}
+
 export const normalizeRegion = (
   region: BubbleRegion,
   width: number,
@@ -74,6 +80,44 @@ export const pickSelections = (
     selected: ambiguous ? [] : selected,
     confidence,
     ambiguous
+  };
+};
+
+export const pickDigitByDominance = (
+  scores: number[],
+  options: DigitDominanceOptions = {}
+) => {
+  if (scores.length === 0) {
+    return { detected: "" as const, confidence: 0 };
+  }
+  const {
+    minTopScore = 0.12,
+    minGapToSecond = 0.025,
+    minStdMultiplier = 1.2
+  } = options;
+  const ranked = scores
+    .map((score, index) => ({ score, index }))
+    .sort((a, b) => b.score - a.score);
+  const top = ranked[0];
+  const second = ranked[1] ?? { score: 0, index: -1 };
+  const others = ranked.slice(1).map((item) => item.score);
+  const meanOthers =
+    others.length > 0
+      ? others.reduce((sum, value) => sum + value, 0) / others.length
+      : 0;
+  const variance =
+    others.length > 0
+      ? others.reduce((sum, value) => sum + (value - meanOthers) ** 2, 0) / others.length
+      : 0;
+  const stdOthers = Math.sqrt(variance);
+  const isDominant =
+    top.score >= minTopScore &&
+    top.score - second.score >= minGapToSecond &&
+    top.score >= meanOthers + stdOthers * minStdMultiplier;
+
+  return {
+    detected: isDominant ? top.index : ("" as const),
+    confidence: clamp(top.score - second.score, 0, 1)
   };
 };
 

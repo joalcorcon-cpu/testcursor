@@ -2,6 +2,7 @@ import { defaultSheetTemplate } from "@/lib/templates/defaultSheetTemplate";
 import {
   computeChoiceScores,
   normalizeRegion,
+  pickDigitByDominance,
   pickSelections,
   regionShadeScore,
   scoreAnswer
@@ -186,17 +187,7 @@ const scoreDigitColumns = (thresholded: CvMat, columns: { x: number; y: number; 
   const shadeScores = columns.map((column) =>
     column.map((bubble) => regionShadeScore(thresholded, bubble))
   );
-  const detected = shadeScores.map((scores) => {
-    let bestIndex = 0;
-    let bestScore = -1;
-    scores.forEach((score, index) => {
-      if (score > bestScore) {
-        bestScore = score;
-        bestIndex = index;
-      }
-    });
-    return bestIndex;
-  });
+  const detected = shadeScores.map((scores) => pickDigitByDominance(scores).detected);
   return { detected, shadeScores };
 };
 

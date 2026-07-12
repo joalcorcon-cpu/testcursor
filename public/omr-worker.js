@@ -98,6 +98,38 @@ const pickSelections = (scores, minMarkThreshold = 0.18, ambiguityGap = 0.03) =>
   };
 };
 
+const pickDigitByDominance = (
+  scores,
+  { minTopScore = 0.12, minGapToSecond = 0.025, minStdMultiplier = 1.2 } = {}
+) => {
+  if (!scores || scores.length === 0) {
+    return { detected: "", confidence: 0 };
+  }
+  const ranked = scores
+    .map((score, index) => ({ score, index }))
+    .sort((a, b) => b.score - a.score);
+  const top = ranked[0];
+  const second = ranked[1] ?? { score: 0, index: -1 };
+  const others = ranked.slice(1).map((item) => item.score);
+  const meanOthers =
+    others.length > 0
+      ? others.reduce((sum, value) => sum + value, 0) / others.length
+      : 0;
+  const variance =
+    others.length > 0
+      ? others.reduce((sum, value) => sum + (value - meanOthers) ** 2, 0) / others.length
+      : 0;
+  const stdOthers = Math.sqrt(variance);
+  const isDominant =
+    top.score >= minTopScore &&
+    top.score - second.score >= minGapToSecond &&
+    top.score >= meanOthers + stdOthers * minStdMultiplier;
+  return {
+    detected: isDominant ? top.index : "",
+    confidence: clamp(top.score - second.score, 0, 1)
+  };
+};
+
 const detectCornerPoint = (cv, gray, thresholded, marker, customSearchRegion, otsuThreshold) => {
   const searchRegion = customSearchRegion ?? expandMarkerRegion(marker, 4);
   const rect = normalizeRegion(searchRegion, thresholded.cols, thresholded.rows);
@@ -502,17 +534,7 @@ const scoreDigitColumns = (cv, thresholded, columns) => {
   const shadeScores = columns.map((column) =>
     column.map((bubble) => regionShadeScore(cv, thresholded, bubble))
   );
-  const detected = shadeScores.map((scores) => {
-    let bestIndex = 0;
-    let bestScore = -1;
-    for (let index = 0; index < scores.length; index += 1) {
-      if (scores[index] > bestScore) {
-        bestScore = scores[index];
-        bestIndex = index;
-      }
-    }
-    return bestIndex;
-  });
+  const detected = shadeScores.map((scores) => pickDigitByDominance(scores).detected);
   return { detected, shadeScores };
 };
 
