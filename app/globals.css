@@ -200,7 +200,7 @@ pre {
     calc(1rem + var(--safe-right))
     calc(1rem + var(--safe-bottom))
     calc(1rem + var(--safe-left));
-  z-index: 1000;
+  z-index: 1600;
   overscroll-behavior: contain;
 }
 
@@ -728,7 +728,7 @@ pre {
   background: rgba(0, 0, 0, 0.35);
   display: grid;
   place-items: center;
-  z-index: 1200;
+  z-index: 1600;
   padding:
     calc(1rem + var(--safe-top))
     calc(1rem + var(--safe-right))

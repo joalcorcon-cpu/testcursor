@@ -530,6 +530,45 @@ const inferMissingCornersBySimilarity = (pointsById, canonicalById) => {
   return inferred;
 };
 
+const cornerAngleDegrees = (previousPoint, vertexPoint, nextPoint) => {
+  const v1x = previousPoint.x - vertexPoint.x;
+  const v1y = previousPoint.y - vertexPoint.y;
+  const v2x = nextPoint.x - vertexPoint.x;
+  const v2y = nextPoint.y - vertexPoint.y;
+  const magnitude1 = Math.hypot(v1x, v1y);
+  const magnitude2 = Math.hypot(v2x, v2y);
+  if (magnitude1 <= 1e-6 || magnitude2 <= 1e-6) {
+    return 0;
+  }
+  const cosine = clamp((v1x * v2x + v1y * v2y) / (magnitude1 * magnitude2), -1, 1);
+  return (Math.acos(cosine) * 180) / Math.PI;
+};
+
+const buildCornerAngleDiagnostics = (corners) => {
+  if (!Array.isArray(corners) || corners.length !== 4) {
+    return {
+      angles: null,
+      uneven: false
+    };
+  }
+  const angles = {
+    tl: cornerAngleDegrees(corners[3], corners[0], corners[1]),
+    tr: cornerAngleDegrees(corners[0], corners[1], corners[2]),
+    br: cornerAngleDegrees(corners[1], corners[2], corners[3]),
+    bl: cornerAngleDegrees(corners[2], corners[3], corners[0])
+  };
+  const maxDeviation = Math.max(
+    Math.abs(angles.tl - 90),
+    Math.abs(angles.tr - 90),
+    Math.abs(angles.br - 90),
+    Math.abs(angles.bl - 90)
+  );
+  return {
+    angles,
+    uneven: maxDeviation > 12
+  };
+};
+
 const scoreDigitColumns = (cv, thresholded, columns, darknessThreshold) => {
   const shadeScores = columns.map((column) =>
     column.map((bubble) => regionShadeScore(cv, thresholded, bubble))
@@ -804,6 +843,7 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
     x: pointsById[marker.id].x,
     y: pointsById[marker.id].y
   }));
+  const angleDiagnostics = buildCornerAngleDiagnostics(corners);
   const cornerLayoutIsValid =
     corners[0].x < corners[1].x &&
     corners[3].x < corners[2].x &&
@@ -837,7 +877,9 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
     debug: orderedMarkers.map((marker) => debugById.get(marker.id)),
     foundByDetectionCount: initialFoundCount,
     foundAfterTriangulationCount: Object.keys(pointsById).length,
-    triangulatedCount: Math.max(0, Object.keys(pointsById).length - initialFoundCount)
+    triangulatedCount: Math.max(0, Object.keys(pointsById).length - initialFoundCount),
+    cornerAngles: angleDiagnostics.angles,
+    cornerUneven: angleDiagnostics.uneven
   };
 };
 
@@ -850,7 +892,9 @@ const rectifySheet = (cv, gray, thresholded, template, otsuThreshold) => {
       cornerDebug: cornerResolution.debug,
       cornerFoundCount: cornerResolution.foundByDetectionCount,
       cornerUsedCount: cornerResolution.foundAfterTriangulationCount,
-      cornerTriangulatedCount: cornerResolution.triangulatedCount
+      cornerTriangulatedCount: cornerResolution.triangulatedCount,
+      cornerAngles: cornerResolution.cornerAngles,
+      cornerUneven: cornerResolution.cornerUneven
     };
   }
 
@@ -897,7 +941,9 @@ const rectifySheet = (cv, gray, thresholded, template, otsuThreshold) => {
     cornerDebug: cornerResolution.debug,
     cornerFoundCount: cornerResolution.foundByDetectionCount,
     cornerUsedCount: cornerResolution.foundAfterTriangulationCount,
-    cornerTriangulatedCount: cornerResolution.triangulatedCount
+    cornerTriangulatedCount: cornerResolution.triangulatedCount,
+    cornerAngles: cornerResolution.cornerAngles,
+    cornerUneven: cornerResolution.cornerUneven
   };
 };
 
@@ -1060,7 +1106,9 @@ const runScan = async ({ requestId, imageRgbaBuffer, width, height, template }) 
         height: thresholded.rows,
         cornerFoundCount: rectified.cornerFoundCount,
         cornerUsedCount: rectified.cornerUsedCount,
-        cornerTriangulatedCount: rectified.cornerTriangulatedCount
+        cornerTriangulatedCount: rectified.cornerTriangulatedCount,
+        cornerAngles: rectified.cornerAngles,
+        cornerUneven: rectified.cornerUneven
       }
     };
   } finally {
