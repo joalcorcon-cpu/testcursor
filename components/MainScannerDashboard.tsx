@@ -12,7 +12,6 @@ import { applyRoiBoxesToTemplate, type RoiBoxVisual } from "@/lib/omr/roiCalibra
 import { processSheetFileInWorker, warmupOmrWorker } from "@/lib/omr/processSheetInWorker";
 import { prepareImageForScan } from "@/lib/omr/prepareImageForScan";
 import { defaultSheetTemplate } from "@/lib/templates/defaultSheetTemplate";
-import { bundledReferenceImages } from "@/lib/templates/bundledReferences";
 import { loadBundledCornerSnapshots } from "@/lib/templates/loadBundledCornerSnapshots";
 import type { CornerSnapshot, OMRResultJson, OMRTemplate } from "@/types/omr";
 
@@ -67,7 +66,6 @@ export function MainScannerDashboard() {
   const [visualDialogError, setVisualDialogError] = useState<string | null>(null);
   const [visualSteps, setVisualSteps] = useState<VisualParseStep[]>([]);
   const [activeVisualFileId, setActiveVisualFileId] = useState<string | null>(null);
-  const [cornerReferencesReady, setCornerReferencesReady] = useState(false);
   const [autoProcessTick, setAutoProcessTick] = useState(0);
   const runBatchProcessRef = useRef<(() => Promise<void>) | null>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
@@ -125,25 +123,12 @@ export function MainScannerDashboard() {
       // Visual dialog starts from bundled references, while scan uses
       // this reference template regardless of later draggable edits.
       setActiveTemplate(nextReferenceTemplate);
-      setCornerReferencesReady(true);
       setScanTemplateReady(true);
     });
     return () => {
       disposed = true;
     };
   }, []);
-
-  const statusCounts = useMemo(
-    () =>
-      queue.reduce(
-        (acc, item) => {
-          acc[item.status] += 1;
-          return acc;
-        },
-        { queued: 0, processing: 0, done: 0, error: 0 }
-      ),
-    [queue]
-  );
 
   const updateQueueItem = (id: string, updater: (item: QueueFileItem) => QueueFileItem) => {
     setQueue((current) => current.map((item) => (item.id === id ? updater(item) : item)));
@@ -479,7 +464,21 @@ export function MainScannerDashboard() {
 
   return (
     <main className="main dashboard-main">
-      <h1 className="dashboard-title">Scanner Dashboard</h1>
+      <header className="appbar">
+        <div className="appbar-left">
+          <button className="appbar-menu" onClick={handleSidebarToggle} type="button" aria-label="Toggle sidebar">
+            ☰
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="appbar-logo" src="/reference/aerc-logo.png" alt="AERC logo" />
+          <strong>AERC OMR Scanner App</strong>
+        </div>
+        <div className="appbar-right">
+          <button className="appbar-collapse" onClick={handleSidebarToggle} type="button">
+            {isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+          </button>
+        </div>
+      </header>
       <section
         className={`dashboard-shell${isSidebarCollapsed ? " sidebar-collapsed" : ""}${
           isMobileDrawerOpen ? " drawer-open" : ""
@@ -501,39 +500,16 @@ export function MainScannerDashboard() {
           </button>
           <nav className="sidebar-nav">
             <button className="sidebar-link sidebar-link-active" onClick={closeMobileDrawer}>Scanner</button>
-            <button className="sidebar-link" onClick={closeMobileDrawer}>Results</button>
-            <button className="sidebar-link" onClick={closeMobileDrawer}>Templates</button>
-            <button className="sidebar-link" onClick={closeMobileDrawer}>History</button>
-            <button className="sidebar-link" onClick={closeMobileDrawer}>Settings</button>
           </nav>
         </aside>
 
         <section className="dashboard-content">
           <header className="dashboard-header">
             <div>
-              <button className="sidebar-toggle" onClick={handleSidebarToggle} type="button">
-                {isMobileViewport ? "Menu" : isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-              </button>
-              <h2>OMR Scanner</h2>
-              <p>Upload OMR sheets for automated grading and analysis</p>
-              <p className="subtle-text">
-                Scan template source: {scanTemplateReady ? "Bundled references active" : "Loading references..."}
-              </p>
-            </div>
-            <div className="actions">
-              <button onClick={() => void runBatchProcess()} disabled={loading || queue.length === 0}>
-                {loading ? "Processing..." : "Start Batch Process"}
-              </button>
-              {loading ? <button onClick={cancelBatch}>Cancel</button> : null}
+              <h1 className="dashboard-title">AERC OMR Scanner App</h1>
+              <p className="subtle-text">Upload files and they are processed automatically.</p>
             </div>
           </header>
-
-          <div className="metrics-grid">
-            <article className="metric-card"><span>Total Files</span><strong>{queue.length}</strong></article>
-            <article className="metric-card"><span>Queued</span><strong>{statusCounts.queued}</strong></article>
-            <article className="metric-card"><span>Processing</span><strong>{statusCounts.processing}</strong></article>
-            <article className="metric-card"><span>Completed</span><strong>{statusCounts.done}</strong></article>
-          </div>
 
           <section
             className={`upload-dropzone${dragActive ? " upload-dropzone-active" : ""}`}
@@ -561,32 +537,12 @@ export function MainScannerDashboard() {
             <label htmlFor="omr-file-input" className="drop-action">Browse Files</label>
           </section>
 
-          <section className="reference-section">
-            <header>
-              <h3>Bundled Reference Images</h3>
-              <span className="subtle-text">Included in package</span>
-            </header>
-            <div className="reference-grid">
-              {bundledReferenceImages.map((reference) => (
-                <article key={reference.id} className="reference-card">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={reference.href} alt={reference.title} />
-                  <div>
-                    <strong>{reference.title}</strong>
-                    <p className="subtle-text">{reference.description}</p>
-                    <a href={reference.href} target="_blank" rel="noreferrer">
-                      Open image
-                    </a>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
-
           <section className="queue-section">
             <header>
               <h3>Processing Queue</h3>
               {scanStage ? <span className="subtle-text">{scanStage}</span> : null}
+              {loading ? <button onClick={cancelBatch}>Cancel</button> : null}
+              {!scanTemplateReady ? <span className="subtle-text">Loading template...</span> : null}
             </header>
             {error ? <p className="error">{error}</p> : null}
             {queue.length === 0 ? (
