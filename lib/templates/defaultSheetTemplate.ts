@@ -4,6 +4,8 @@ import type {
   ChoiceLabel,
   OMRTemplate
 } from "@/types/omr";
+import { applyRoiBoxesToTemplate } from "@/lib/omr/roiCalibration";
+import { scriptShadeboxRoiCalibrationBoxes } from "@/lib/templates/bundledReferences";
 
 const makeChoiceRow = (
   startX: number,
@@ -62,7 +64,7 @@ const buildAnswers = (): AnswerItemRegion[] => {
   return answers;
 };
 
-export const defaultSheetTemplate: OMRTemplate = {
+const baseTemplate: OMRTemplate = {
   id: "default-aerc-100q-v1",
   name: "AERC 100Q (Sample)",
   version: 1,
@@ -91,3 +93,12 @@ export const defaultSheetTemplate: OMRTemplate = {
   },
   answers: buildAnswers()
 };
+
+export const defaultSheetTemplate: OMRTemplate = applyRoiBoxesToTemplate(baseTemplate, [
+  { id: "studentId", ...scriptShadeboxRoiCalibrationBoxes.studentId },
+  { id: "examCode", ...scriptShadeboxRoiCalibrationBoxes.examCode },
+  { id: "examSet", ...scriptShadeboxRoiCalibrationBoxes.examSet },
+  { id: "answersCol1", ...scriptShadeboxRoiCalibrationBoxes.answersCol1 },
+  { id: "answersCol2", ...scriptShadeboxRoiCalibrationBoxes.answersCol2 },
+  { id: "answersCol3", ...scriptShadeboxRoiCalibrationBoxes.answersCol3 }
+]);

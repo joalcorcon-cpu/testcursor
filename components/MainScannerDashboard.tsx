@@ -12,6 +12,8 @@ import { applyRoiBoxesToTemplate, type RoiBoxVisual } from "@/lib/omr/roiCalibra
 import { processSheetFileInWorker, warmupOmrWorker } from "@/lib/omr/processSheetInWorker";
 import { prepareImageForScan } from "@/lib/omr/prepareImageForScan";
 import { defaultSheetTemplate } from "@/lib/templates/defaultSheetTemplate";
+import { bundledReferenceImages } from "@/lib/templates/bundledReferences";
+import { loadBundledCornerSnapshots } from "@/lib/templates/loadBundledCornerSnapshots";
 import type { CornerSnapshot, OMRResultJson, OMRTemplate } from "@/types/omr";
 
 type QueueStatus = "queued" | "processing" | "done" | "error";
@@ -35,21 +37,6 @@ const formatBytes = (bytes: number) => {
   if (kb < 1024) return `${kb.toFixed(1)} KB`;
   return `${(kb / 1024).toFixed(1)} MB`;
 };
-
-const bundledReferences = [
-  {
-    id: "answer-sheet-reference",
-    title: "Answer Sheet Reference",
-    description: "Use this as a visual alignment guide while setting corners and ROIs.",
-    href: "/reference/answer-sheet-reference.svg"
-  },
-  {
-    id: "corner-marker-reference",
-    title: "Corner Marker Reference",
-    description: "Reference corner marker shape used by template matching and centroid checks.",
-    href: "/reference/corner-marker-reference.svg"
-  }
-] as const;
 
 export function MainScannerDashboard() {
   const [activeTemplate, setActiveTemplate] = useState<OMRTemplate>(() =>
@@ -88,6 +75,28 @@ export function MainScannerDashboard() {
     void warmupOmrWorker().catch(() => {
       // Warmup is best-effort.
     });
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    void loadBundledCornerSnapshots().then((snapshots) => {
+      if (disposed) {
+        return;
+      }
+      if (!snapshots.tl || !snapshots.tr || !snapshots.br || !snapshots.bl) {
+        return;
+      }
+      setActiveTemplate((current) => ({
+        ...current,
+        cornerSnapshots: {
+          ...(current.cornerSnapshots ?? {}),
+          ...snapshots
+        }
+      }));
+    });
+    return () => {
+      disposed = true;
+    };
   }, []);
 
   const statusCounts = useMemo(
@@ -471,7 +480,7 @@ export function MainScannerDashboard() {
               <span className="subtle-text">Included in package</span>
             </header>
             <div className="reference-grid">
-              {bundledReferences.map((reference) => (
+              {bundledReferenceImages.map((reference) => (
                 <article key={reference.id} className="reference-card">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={reference.href} alt={reference.title} />

@@ -40,9 +40,13 @@ No raw image blobs are persisted by default.
 The app ships with bundled references under `public/reference`:
 
 - `answer-sheet-reference.svg`
-- `corner-marker-reference.svg`
+- `corners/tl-snapshot.svg`
+- `corners/tr-snapshot.svg`
+- `corners/br-snapshot.svg`
+- `corners/bl-snapshot.svg`
 
-These are exposed in the dashboard UI under **Bundled Reference Images** so users can quickly open and use them during setup/calibration.
+On page load, corner snapshots are preloaded from these bundled files and attached to the active template so scans immediately use quadrant `matchTemplate` corner detection.
+If one or two corners are not found, a rectangle-based triangulation fallback estimates missing corners before perspective transform.
 
 ## Review and correction flow
 
