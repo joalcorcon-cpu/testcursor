@@ -62,6 +62,7 @@ export function MainScannerDashboard() {
   const [visualDialogError, setVisualDialogError] = useState<string | null>(null);
   const [visualSteps, setVisualSteps] = useState<VisualParseStep[]>([]);
   const [activeVisualFileId, setActiveVisualFileId] = useState<string | null>(null);
+  const [cornerReferencesReady, setCornerReferencesReady] = useState(false);
 
   useEffect(() => {
     activeTemplateRef.current = activeTemplate;
@@ -93,6 +94,7 @@ export function MainScannerDashboard() {
           ...snapshots
         }
       }));
+      setCornerReferencesReady(true);
     });
     return () => {
       disposed = true;
@@ -178,6 +180,10 @@ export function MainScannerDashboard() {
   };
 
   const runBatchProcess = async () => {
+    if (!cornerReferencesReady) {
+      setError("Corner reference snapshots are still loading. Please retry in a moment.");
+      return;
+    }
     const pending = queueRef.current.filter((item) => item.status === "queued" || item.status === "error");
     if (pending.length === 0) {
       setError("Add at least one file to start batch processing.");
@@ -432,6 +438,9 @@ export function MainScannerDashboard() {
             <div>
               <h2>OMR Scanner</h2>
               <p>Upload OMR sheets for automated grading and analysis</p>
+              <p className="subtle-text">
+                Corner references: {cornerReferencesReady ? "Loaded (4/4)" : "Loading..."}
+              </p>
             </div>
             <div className="actions">
               <button onClick={() => void runBatchProcess()} disabled={loading || queue.length === 0}>

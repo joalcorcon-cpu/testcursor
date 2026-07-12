@@ -582,7 +582,12 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
         template.cornerSnapshots?.[marker.id],
         otsuThreshold
       );
-      if (snapshotMatch) {
+      if (
+        snapshotMatch &&
+        snapshotMatch.found &&
+        Number.isFinite(snapshotMatch.x) &&
+        Number.isFinite(snapshotMatch.y)
+      ) {
         return {
           detection: snapshotMatch,
           debug: {
@@ -599,6 +604,34 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
           }
         };
       }
+
+      const customSearchRegion = template.cornerSearchWindows?.[marker.id];
+      const fallbackDetection = detectCornerPoint(
+        cv,
+        gray,
+        thresholded,
+        marker,
+        customSearchRegion,
+        otsuThreshold
+      );
+      return {
+        detection: fallbackDetection,
+        debug: {
+          id: marker.id,
+          method: "snapshot-match+centroid-fallback",
+          found: fallbackDetection.found,
+          point:
+            Number.isFinite(fallbackDetection.x) && Number.isFinite(fallbackDetection.y)
+              ? { x: fallbackDetection.x, y: fallbackDetection.y }
+              : null,
+          searchRect: customSearchRegion
+            ? normalizeRegion(customSearchRegion, thresholded.cols, thresholded.rows)
+            : snapshotMatch?.searchRect,
+          matchRect: snapshotMatch?.matchRect,
+          score: snapshotMatch?.score,
+          usedSnapshotCentroid: snapshotMatch?.usedSnapshotCentroid
+        }
+      };
     }
 
     const customSearchRegion = template.cornerSearchWindows?.[marker.id];
