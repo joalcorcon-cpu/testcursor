@@ -1022,18 +1022,22 @@ export function MainScannerDashboard() {
           <section className="queue-section">
             <header>
               <div className="queue-header-left">
-                <h3>Processing Queue</h3>
+                <h3>Processing Queue ({queue.length})</h3>
                 {!scanTemplateReady ? <span className="subtle-text">Loading template...</span> : null}
               </div>
               <div className="queue-header-actions">
                 {loading ? <button onClick={cancelBatch}>Cancel</button> : null}
                 <button
+                  className="excel-export-button"
                   onClick={() => void exportResultsToExcel()}
                   disabled={exportBusy || queue.every((item) => !item.result)}
                 >
+                  <span className="excel-icon" aria-hidden="true">
+                    X
+                  </span>{" "}
                   {exportBusy ? "Exporting..." : "Export Excel"}
                 </button>
-                <button onClick={deleteAllFiles} disabled={queue.length === 0}>
+                <button className="destructive-filled" onClick={deleteAllFiles} disabled={queue.length === 0}>
                   Delete All
                 </button>
               </div>
@@ -1073,35 +1077,66 @@ export function MainScannerDashboard() {
                   <article key={item.id} className="queue-card">
                     <div>
                       <strong>{item.name}</strong>
-                      <p className="subtle-text">{formatBytes(item.size)}</p>
-                      {item.detail ? <p className="subtle-text">{item.detail}</p> : null}
-                      {item.diagnostics ? <p className="subtle-text">{item.diagnostics}</p> : null}
-                      {(issueMapByFileId.get(item.id) ?? []).length > 0 ? (
-                        <div className="file-issue-chip-row">
-                          {(issueMapByFileId.get(item.id) ?? []).map((key) => {
-                            const definition = issueDefinitions.find((entry) => entry.key === key);
+                      <div className="file-issue-chip-row">
+                        {(() => {
+                          const issues = issueMapByFileId.get(item.id) ?? [];
+                          if (issues.length > 0) {
+                            return issues.map((key) => {
+                              const definition = issueDefinitions.find((entry) => entry.key === key);
+                              return (
+                                <span
+                                  key={`${item.id}-${key}`}
+                                  className={`issue-chip issue-chip-${definition?.kind ?? "warning"} issue-chip-card`}
+                                >
+                                  {definition?.label ?? key}
+                                </span>
+                              );
+                            });
+                          }
+                          if (item.status === "done" && item.result) {
                             return (
-                              <span
-                                key={`${item.id}-${key}`}
-                                className={`issue-chip issue-chip-${definition?.kind ?? "warning"} issue-chip-card`}
-                              >
-                                {definition?.label ?? key}
+                              <span className="issue-chip issue-chip-ok issue-chip-card" key={`${item.id}-ok`}>
+                                Okay
                               </span>
                             );
-                          })}
-                        </div>
-                      ) : null}
+                          }
+                          return null;
+                        })()}
+                      </div>
+                      <p className="subtle-text">{formatBytes(item.size)}</p>
                     </div>
                     <div className="queue-actions">
-                      <span className={`processing-badge processing-${item.status}`}>{item.status}</span>
+                      {item.status !== "done" ? (
+                        <span className={`processing-badge processing-${item.status}`}>{item.status}</span>
+                      ) : null}
                       <button onClick={() => void openTransformReview(item.id)} disabled={!item.result}>
-                        Review Transform
+                        Review Scan
                       </button>
-                      <button onClick={() => void openVisualDialog(item.id)}>Visual Parse / Template</button>
-                      <button onClick={() => openOverrideDialog(item.id)} disabled={!item.result}>
-                        Override & JSON
+                      <button
+                        className="queue-icon-button"
+                        title="Visual Parse / Template"
+                        aria-label="Visual Parse / Template"
+                        onClick={() => void openVisualDialog(item.id)}
+                      >
+                        ⚙
                       </button>
-                      <button onClick={() => deleteFromQueue(item.id)}>Delete</button>
+                      <button
+                        className="queue-icon-button"
+                        title="Override / JSON"
+                        aria-label="Override / JSON"
+                        onClick={() => openOverrideDialog(item.id)}
+                        disabled={!item.result}
+                      >
+                        {"{}"}
+                      </button>
+                      <button
+                        className="queue-icon-button queue-icon-button-destructive"
+                        title="Delete file"
+                        aria-label="Delete file"
+                        onClick={() => deleteFromQueue(item.id)}
+                      >
+                        🗑
+                      </button>
                     </div>
                   </article>
                 ))}
