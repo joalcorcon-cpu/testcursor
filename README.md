@@ -1,15 +1,12 @@
-# OMR Web App (OpenCV.js + Supabase)
+# OMR Web App (OpenCV.js, Local-Only)
 
 This project is a web-based OMR scanner for student answer sheets.
 
 ## What it does
 
 - Uses **OpenCV.js** in the browser to preprocess and evaluate filled bubbles.
-- Uses **Supabase** as database for:
-  - sheet template definitions (`templates`)
-  - optional region rows (`template_regions`)
-  - scan session metadata (`scan_sessions`)
-  - scan result records (`scan_results`)
+- Uses **premade local template definitions** (no backend required).
+- Stores processing state in the browser session only.
 - Stores scan outputs as **JSON only** containing marks/shade information.
 - Includes a default template matching the provided 100-item answer sheet layout.
 
@@ -22,7 +19,7 @@ Scan output contains only bubble-related data:
 - `student.examSet`: selected set option(s) + shade scores/confidence
 - `answers[]`: per question selected option(s), shade scores, confidence, ambiguous flag
 
-No raw image blobs are stored in Supabase by default.
+No raw image blobs are persisted by default.
 
 ## Quick start
 
@@ -32,36 +29,24 @@ No raw image blobs are stored in Supabase by default.
    npm install
    ```
 
-2. Configure environment variables in `.env.local`:
-
-   ```bash
-   NEXT_PUBLIC_SUPABASE_URL=...
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=...
-   SUPABASE_SERVICE_ROLE_KEY=...
-   ```
-
-3. Create database tables in Supabase using:
-
-   - [`supabase/schema.sql`](supabase/schema.sql)
-
-4. (Optional) Seed the default template:
-
-   - `POST /api/templates`
-
-5. Start the app:
+2. Start the app:
 
    ```bash
    npm run dev
    ```
 
-## API routes
+## Reference images bundled in package
 
-- `GET /api/templates` -> get templates (falls back to local default when env missing)
-- `POST /api/templates` -> upsert default template to Supabase
-- `GET /api/scans` -> list recent scan JSON records
-- supports filters via query params: `sourceName`, `templateId`, `from`, `to`, `limit`
-- `POST /api/scans` -> store one scan JSON record
-  - creates a `scan_sessions` row, then writes `scan_results`
+The app ships with bundled references under `public/reference`:
+
+- `answer-sheet-reference.jpg`
+- `corners/tl-snapshot.jpg`
+- `corners/tr-snapshot.jpg`
+- `corners/br-snapshot.jpg`
+- `corners/bl-snapshot.jpg`
+
+On page load, corner snapshots are preloaded from these bundled files and attached to the active template so scans immediately use quadrant `matchTemplate` corner detection.
+If one or two corners are not found, a rectangle-based triangulation fallback estimates missing corners before perspective transform.
 
 ## Review and correction flow
 
@@ -74,7 +59,7 @@ No raw image blobs are stored in Supabase by default.
   - exam set
   - per-question selected choice(s)
 - Review low-confidence/ambiguous items and adjust as needed.
-- Save corrected JSON output to Supabase.
+- Save/override corrected JSON directly in the per-file dialog (frontend-only flow).
 
 ## Notes
 

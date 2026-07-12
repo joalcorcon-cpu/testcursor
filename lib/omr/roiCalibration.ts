@@ -38,26 +38,18 @@ const makeCellBubble = (
   rows: number,
   colIndex: number,
   rowIndex: number,
-  fill = 0.64
+  fill = 1
 ): BubbleRegion => {
-  const spanX = cols > 1 ? box.w / (cols - 1) : box.w;
-  const spanY = rows > 1 ? box.h / (rows - 1) : box.h;
-  const bubbleWidth =
-    cols > 1 ? Math.max(0.002, Math.min(box.w, spanX * fill)) : Math.max(0.002, box.w);
-  const bubbleHeight =
-    rows > 1 ? Math.max(0.002, Math.min(box.h, spanY * fill)) : Math.max(0.002, box.h);
-  const startCenterX = box.x + bubbleWidth / 2;
-  const endCenterX = box.x + box.w - bubbleWidth / 2;
-  const startCenterY = box.y + bubbleHeight / 2;
-  const endCenterY = box.y + box.h - bubbleHeight / 2;
-  const centerX =
-    cols > 1
-      ? startCenterX + ((endCenterX - startCenterX) * colIndex) / (cols - 1)
-      : box.x + box.w / 2;
-  const centerY =
-    rows > 1
-      ? startCenterY + ((endCenterY - startCenterY) * rowIndex) / (rows - 1)
-      : box.y + box.h / 2;
+  const safeCols = Math.max(1, cols);
+  const safeRows = Math.max(1, rows);
+  const cellWidth = box.w / safeCols;
+  const cellHeight = box.h / safeRows;
+  const bubbleWidth = Math.max(0.002, Math.min(box.w, cellWidth * fill));
+  const bubbleHeight = Math.max(0.002, Math.min(box.h, cellHeight * fill));
+  const cellX = box.x + colIndex * cellWidth;
+  const cellY = box.y + rowIndex * cellHeight;
+  const centerX = cellX + cellWidth / 2;
+  const centerY = cellY + cellHeight / 2;
   return {
     x: centerX - bubbleWidth / 2,
     y: centerY - bubbleHeight / 2,

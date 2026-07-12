@@ -420,6 +420,84 @@ const detectCornerByTemplateMatch = (cv, gray, cornerId, snapshot, otsuThreshold
   }
 };
 
+const inferMissingCornerByParallelogram = (pointsById) => {
+  const tl = pointsById.tl;
+  const tr = pointsById.tr;
+  const br = pointsById.br;
+  const bl = pointsById.bl;
+  if (!tl && tr && br && bl) {
+    return { id: "tl", point: { x: tr.x + bl.x - br.x, y: tr.y + bl.y - br.y } };
+  }
+  if (!tr && tl && br && bl) {
+    return { id: "tr", point: { x: tl.x + br.x - bl.x, y: tl.y + br.y - bl.y } };
+  }
+  if (!br && tl && tr && bl) {
+    return { id: "br", point: { x: tr.x + bl.x - tl.x, y: tr.y + bl.y - tl.y } };
+  }
+  if (!bl && tl && tr && br) {
+    return { id: "bl", point: { x: tl.x + br.x - tr.x, y: tl.y + br.y - tr.y } };
+  }
+  return null;
+};
+
+const inferMissingCornersBySimilarity = (pointsById, canonicalById) => {
+  const ids = ["tl", "tr", "br", "bl"];
+  const knownIds = ids.filter((id) => pointsById[id]);
+  if (knownIds.length < 2) {
+    return null;
+  }
+
+  let bestPair = null;
+  for (let i = 0; i < knownIds.length; i += 1) {
+    for (let j = i + 1; j < knownIds.length; j += 1) {
+      const a = knownIds[i];
+      const b = knownIds[j];
+      const cA = canonicalById[a];
+      const cB = canonicalById[b];
+      const dist = Math.hypot(cB.x - cA.x, cB.y - cA.y);
+      if (!bestPair || dist > bestPair.dist) {
+        bestPair = { a, b, dist };
+      }
+    }
+  }
+  if (!bestPair || bestPair.dist < 1e-3) {
+    return null;
+  }
+
+  const cA = canonicalById[bestPair.a];
+  const cB = canonicalById[bestPair.b];
+  const pA = pointsById[bestPair.a];
+  const pB = pointsById[bestPair.b];
+  if (!pA || !pB) {
+    return null;
+  }
+
+  const vC = { x: cB.x - cA.x, y: cB.y - cA.y };
+  const vP = { x: pB.x - pA.x, y: pB.y - pA.y };
+  const denom = vC.x * vC.x + vC.y * vC.y;
+  if (denom < 1e-6) {
+    return null;
+  }
+
+  const coeffA = (vP.x * vC.x + vP.y * vC.y) / denom;
+  const coeffB = (vP.y * vC.x - vP.x * vC.y) / denom;
+
+  const inferred = {};
+  for (const id of ids) {
+    if (pointsById[id]) {
+      continue;
+    }
+    const c = canonicalById[id];
+    const dx = c.x - cA.x;
+    const dy = c.y - cA.y;
+    inferred[id] = {
+      x: pA.x + coeffA * dx - coeffB * dy,
+      y: pA.y + coeffB * dx + coeffA * dy
+    };
+  }
+  return inferred;
+};
+
 const scoreDigitColumns = (cv, thresholded, columns) => {
   const shadeScores = columns.map((column) =>
     column.map((bubble) => regionShadeScore(cv, thresholded, bubble))
@@ -504,7 +582,12 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
         template.cornerSnapshots?.[marker.id],
         otsuThreshold
       );
-      if (snapshotMatch) {
+      if (
+        snapshotMatch &&
+        snapshotMatch.found &&
+        Number.isFinite(snapshotMatch.x) &&
+        Number.isFinite(snapshotMatch.y)
+      ) {
         return {
           detection: snapshotMatch,
           debug: {
@@ -521,6 +604,34 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
           }
         };
       }
+
+      const customSearchRegion = template.cornerSearchWindows?.[marker.id];
+      const fallbackDetection = detectCornerPoint(
+        cv,
+        gray,
+        thresholded,
+        marker,
+        customSearchRegion,
+        otsuThreshold
+      );
+      return {
+        detection: fallbackDetection,
+        debug: {
+          id: marker.id,
+          method: "snapshot-match+centroid-fallback",
+          found: fallbackDetection.found,
+          point:
+            Number.isFinite(fallbackDetection.x) && Number.isFinite(fallbackDetection.y)
+              ? { x: fallbackDetection.x, y: fallbackDetection.y }
+              : null,
+          searchRect: customSearchRegion
+            ? normalizeRegion(customSearchRegion, thresholded.cols, thresholded.rows)
+            : snapshotMatch?.searchRect,
+          matchRect: snapshotMatch?.matchRect,
+          score: snapshotMatch?.score,
+          usedSnapshotCentroid: snapshotMatch?.usedSnapshotCentroid
+        }
+      };
     }
 
     const customSearchRegion = template.cornerSearchWindows?.[marker.id];
@@ -597,18 +708,67 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
       }
     };
   });
-  const foundCount = cornerDetections.filter((entry) => entry.detection.found).length;
-  if (foundCount < 4) {
-    workerLog("Corner detection incomplete", { foundCount });
+  const pointsById = {};
+  for (const entry of cornerDetections) {
+    if (
+      entry.detection.found &&
+      Number.isFinite(entry.detection.x) &&
+      Number.isFinite(entry.detection.y)
+    ) {
+      pointsById[entry.debug.id] = { x: entry.detection.x, y: entry.detection.y };
+    }
+  }
+
+  const canonicalById = {};
+  for (const marker of orderedMarkers) {
+    canonicalById[marker.id] = {
+      x: (marker.x + marker.w / 2) * thresholded.cols,
+      y: (marker.y + marker.h / 2) * thresholded.rows
+    };
+  }
+
+  const initialFoundCount = Object.keys(pointsById).length;
+  if (initialFoundCount < 4) {
+    const inferredFromThree = inferMissingCornerByParallelogram(pointsById);
+    if (inferredFromThree) {
+      pointsById[inferredFromThree.id] = inferredFromThree.point;
+    }
+  }
+  if (Object.keys(pointsById).length < 4) {
+    const inferredBySimilarity = inferMissingCornersBySimilarity(pointsById, canonicalById);
+    if (inferredBySimilarity) {
+      Object.assign(pointsById, inferredBySimilarity);
+    }
+  }
+
+  const debugById = new Map(cornerDetections.map((entry) => [entry.debug.id, entry.debug]));
+  for (const marker of orderedMarkers) {
+    const id = marker.id;
+    const existingDebug = debugById.get(id);
+    if (!existingDebug) {
+      continue;
+    }
+    if (!existingDebug.found && pointsById[id]) {
+      existingDebug.found = true;
+      existingDebug.method = `${existingDebug.method}+triangulated-rectangle`;
+      existingDebug.point = { x: pointsById[id].x, y: pointsById[id].y };
+    }
+  }
+
+  if (Object.keys(pointsById).length < 4) {
+    workerLog("Corner detection incomplete after triangulation", {
+      foundBeforeTriangulation: initialFoundCount,
+      foundAfterTriangulation: Object.keys(pointsById).length
+    });
     return {
       valid: false,
       corners: [],
-      debug: cornerDetections.map((entry) => entry.debug)
+      debug: orderedMarkers.map((marker) => debugById.get(marker.id))
     };
   }
-  const corners = cornerDetections.map((entry) => ({
-    x: entry.detection.x,
-    y: entry.detection.y
+  const corners = orderedMarkers.map((marker) => ({
+    x: pointsById[marker.id].x,
+    y: pointsById[marker.id].y
   }));
   const cornerLayoutIsValid =
     corners[0].x < corners[1].x &&
@@ -637,7 +797,7 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
   return {
     valid: true,
     corners,
-    debug: cornerDetections.map((entry) => entry.debug)
+    debug: orderedMarkers.map((marker) => debugById.get(marker.id))
   };
 };
 

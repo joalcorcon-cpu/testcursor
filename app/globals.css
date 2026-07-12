@@ -1,5 +1,9 @@
 :root {
   color-scheme: light;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 }
 
 body {
@@ -12,7 +16,11 @@ body {
 .main {
   max-width: 980px;
   margin: 0 auto;
-  padding: 2rem 1rem 4rem;
+  padding:
+    calc(2rem + var(--safe-top))
+    calc(1rem + var(--safe-right))
+    calc(4rem + var(--safe-bottom))
+    calc(1rem + var(--safe-left));
 }
 
 .subtitle {
@@ -184,14 +192,18 @@ pre {
   background: #0009;
   display: grid;
   place-items: center;
-  padding: 1rem;
+  padding:
+    calc(1rem + var(--safe-top))
+    calc(1rem + var(--safe-right))
+    calc(1rem + var(--safe-bottom))
+    calc(1rem + var(--safe-left));
   z-index: 1000;
   overscroll-behavior: contain;
 }
 
 .modal-card {
   width: min(1100px, 100%);
-  max-height: 90vh;
+  max-height: calc(100dvh - (var(--safe-top) + var(--safe-bottom) + 2rem));
   overflow: hidden;
   border: 1px solid #6664;
   border-radius: 12px;
@@ -521,17 +533,39 @@ pre {
   display: grid;
   place-items: center;
   z-index: 1200;
-  padding: 1rem;
+  padding:
+    calc(1rem + var(--safe-top))
+    calc(1rem + var(--safe-right))
+    calc(1rem + var(--safe-bottom))
+    calc(1rem + var(--safe-left));
 }
 
 .override-dialog {
   width: min(920px, 100%);
+  max-height: calc(100dvh - (var(--safe-top) + var(--safe-bottom) + 2rem));
+  overflow: auto;
   background: #ffffff;
   border: 1px solid #d0d5dd;
   border-radius: 12px;
   padding: 1rem;
   display: grid;
   gap: 0.8rem;
+}
+
+@media (max-width: 768px) {
+  .modal-card {
+    border-radius: 10px;
+    padding: 0.8rem;
+  }
+
+  .wizard-page {
+    padding-right: 0;
+  }
+
+  .override-dialog {
+    border-radius: 10px;
+    padding: 0.8rem;
+  }
 }
 
 .override-json {
@@ -543,4 +577,54 @@ pre {
   font-size: 0.84rem;
   color: #001a5e;
   background: #ffffff;
+}
+
+.reference-section {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.reference-section header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.reference-section h3 {
+  margin: 0;
+}
+
+.reference-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.reference-card {
+  border: 1px solid #d0d5dd;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 0.6rem;
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 0.6rem;
+  align-items: start;
+}
+
+.reference-card img {
+  width: 100%;
+  border: 1px solid #eaecf0;
+  border-radius: 8px;
+  background: #f8f9fc;
+}
+
+.reference-card p {
+  margin: 0.35rem 0 0.5rem;
+}
+
+.reference-card a {
+  color: #0030ad;
+  text-decoration: none;
+  font-weight: 600;
 }

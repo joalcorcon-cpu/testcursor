@@ -12,6 +12,8 @@ import { applyRoiBoxesToTemplate, type RoiBoxVisual } from "@/lib/omr/roiCalibra
 import { processSheetFileInWorker, warmupOmrWorker } from "@/lib/omr/processSheetInWorker";
 import { prepareImageForScan } from "@/lib/omr/prepareImageForScan";
 import { defaultSheetTemplate } from "@/lib/templates/defaultSheetTemplate";
+import { bundledReferenceImages } from "@/lib/templates/bundledReferences";
+import { loadBundledCornerSnapshots } from "@/lib/templates/loadBundledCornerSnapshots";
 import type { CornerSnapshot, OMRResultJson, OMRTemplate } from "@/types/omr";
 
 type QueueStatus = "queued" | "processing" | "done" | "error";
@@ -40,7 +42,11 @@ export function MainScannerDashboard() {
   const [activeTemplate, setActiveTemplate] = useState<OMRTemplate>(() =>
     JSON.parse(JSON.stringify(defaultSheetTemplate))
   );
+  const [scanTemplateReady, setScanTemplateReady] = useState(false);
   const activeTemplateRef = useRef<OMRTemplate>(
+    JSON.parse(JSON.stringify(defaultSheetTemplate))
+  );
+  const referenceTemplateRef = useRef<OMRTemplate>(
     JSON.parse(JSON.stringify(defaultSheetTemplate))
   );
   const queueRef = useRef<QueueFileItem[]>([]);
@@ -60,6 +66,7 @@ export function MainScannerDashboard() {
   const [visualDialogError, setVisualDialogError] = useState<string | null>(null);
   const [visualSteps, setVisualSteps] = useState<VisualParseStep[]>([]);
   const [activeVisualFileId, setActiveVisualFileId] = useState<string | null>(null);
+  const [cornerReferencesReady, setCornerReferencesReady] = useState(false);
 
   useEffect(() => {
     activeTemplateRef.current = activeTemplate;
@@ -73,6 +80,34 @@ export function MainScannerDashboard() {
     void warmupOmrWorker().catch(() => {
       // Warmup is best-effort.
     });
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    void loadBundledCornerSnapshots().then((snapshots) => {
+      if (disposed) {
+        return;
+      }
+      if (!snapshots.tl || !snapshots.tr || !snapshots.br || !snapshots.bl) {
+        return;
+      }
+      const nextReferenceTemplate: OMRTemplate = {
+        ...referenceTemplateRef.current,
+        cornerSnapshots: {
+          ...(referenceTemplateRef.current.cornerSnapshots ?? {}),
+          ...snapshots
+        }
+      };
+      referenceTemplateRef.current = nextReferenceTemplate;
+      // Visual dialog starts from bundled references, while scan uses
+      // this reference template regardless of later draggable edits.
+      setActiveTemplate(nextReferenceTemplate);
+      setCornerReferencesReady(true);
+      setScanTemplateReady(true);
+    });
+    return () => {
+      disposed = true;
+    };
   }, []);
 
   const statusCounts = useMemo(
@@ -131,7 +166,7 @@ export function MainScannerDashboard() {
         workerBuffer,
         prepared.width,
         prepared.height,
-        activeTemplateRef.current,
+        referenceTemplateRef.current,
         (stage) => {
           setScanStage(`Processing ${index + 1}/${total}: ${item.name} — ${stage}`);
           updateQueueItem(item.id, (current) => ({ ...current, detail: stage }));
@@ -154,6 +189,10 @@ export function MainScannerDashboard() {
   };
 
   const runBatchProcess = async () => {
+    if (!scanTemplateReady) {
+      setError("Corner reference snapshots are still loading. Please retry in a moment.");
+      return;
+    }
     const pending = queueRef.current.filter((item) => item.status === "queued" || item.status === "error");
     if (pending.length === 0) {
       setError("Add at least one file to start batch processing.");
@@ -408,6 +447,9 @@ export function MainScannerDashboard() {
             <div>
               <h2>OMR Scanner</h2>
               <p>Upload OMR sheets for automated grading and analysis</p>
+              <p className="subtle-text">
+                Scan template source: {scanTemplateReady ? "Bundled references active" : "Loading references..."}
+              </p>
             </div>
             <div className="actions">
               <button onClick={() => void runBatchProcess()} disabled={loading || queue.length === 0}>
@@ -448,6 +490,28 @@ export function MainScannerDashboard() {
               onChange={(event) => addFilesToQueue(Array.from(event.target.files ?? []))}
             />
             <label htmlFor="omr-file-input" className="drop-action">Browse Files</label>
+          </section>
+
+          <section className="reference-section">
+            <header>
+              <h3>Bundled Reference Images</h3>
+              <span className="subtle-text">Included in package</span>
+            </header>
+            <div className="reference-grid">
+              {bundledReferenceImages.map((reference) => (
+                <article key={reference.id} className="reference-card">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={reference.href} alt={reference.title} />
+                  <div>
+                    <strong>{reference.title}</strong>
+                    <p className="subtle-text">{reference.description}</p>
+                    <a href={reference.href} target="_blank" rel="noreferrer">
+                      Open image
+                    </a>
+                  </div>
+                </article>
+              ))}
+            </div>
           </section>
 
           <section className="queue-section">

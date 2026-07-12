@@ -762,7 +762,7 @@ export const buildVisualParsingSteps = async (
     {
       id: "corner-centroids",
       title: "Step 2: Corner centroid detection",
-      description: `Centroids are computed from matched corner crops (${cornerCentroidFound}/4 found). Green centroid = crop centroid, orange = snapshot-centroid offset fallback, yellow box = matchTemplate crop.`,
+      description: `Centroids are computed from bundled corner snapshots with centroid fallback (${cornerCentroidFound}/4 found). Green centroid = detected crop centroid, orange = snapshot-centroid offset fallback, yellow box = matchTemplate crop.`,
       imageDataUrl: cornerCentroidOverlayUrl
     },
     {

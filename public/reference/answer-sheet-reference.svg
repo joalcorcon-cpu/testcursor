@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1260" viewBox="0 0 900 1260" role="img" aria-label="Answer sheet reference">
+  <rect width="900" height="1260" fill="#ffffff"/>
+  <rect x="36" y="36" width="828" height="1188" rx="16" ry="16" fill="#ffffff" stroke="#d0d5dd" stroke-width="4"/>
+  <text x="80" y="110" font-family="Arial, Helvetica, sans-serif" font-size="44" fill="#001a5e">AERC Answer Sheet Reference</text>
+  <text x="80" y="160" font-family="Arial, Helvetica, sans-serif" font-size="24" fill="#475467">Use this bundled image for corner/template calibration preview.</text>
+
+  <rect x="88" y="250" width="270" height="190" fill="#f8f9fc" stroke="#0030ad" stroke-width="3"/>
+  <text x="102" y="236" font-family="Arial, Helvetica, sans-serif" font-size="20" fill="#0030ad">Student ID (6 rows x 10 options)</text>
+
+  <rect x="88" y="530" width="270" height="110" fill="#f8f9fc" stroke="#ff6400" stroke-width="3"/>
+  <text x="102" y="516" font-family="Arial, Helvetica, sans-serif" font-size="20" fill="#ff6400">Exam Code (3 rows x 10 options)</text>
+
+  <rect x="88" y="700" width="170" height="44" fill="#f8f9fc" stroke="#12b76a" stroke-width="3"/>
+  <text x="102" y="690" font-family="Arial, Helvetica, sans-serif" font-size="20" fill="#12b76a">Exam Set (1 row x 4 options)</text>
+
+  <rect x="400" y="230" width="140" height="820" fill="#f8f9fc" stroke="#0030ad" stroke-width="3"/>
+  <rect x="560" y="230" width="140" height="820" fill="#f8f9fc" stroke="#0030ad" stroke-width="3"/>
+  <rect x="720" y="230" width="140" height="760" fill="#f8f9fc" stroke="#0030ad" stroke-width="3"/>
+  <text x="402" y="218" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#0030ad">Answers 1-35</text>
+  <text x="562" y="218" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#0030ad">Answers 36-70</text>
+  <text x="722" y="218" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#0030ad">Answers 71-100</text>
+
+  <rect x="64" y="64" width="20" height="20" fill="#000000"/>
+  <rect x="816" y="64" width="20" height="20" fill="#000000"/>
+  <rect x="64" y="1176" width="20" height="20" fill="#000000"/>
+  <rect x="816" y="1176" width="20" height="20" fill="#000000"/>
+</svg>
