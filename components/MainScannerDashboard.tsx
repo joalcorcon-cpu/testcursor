@@ -29,6 +29,15 @@ interface QueueFileItem {
   thresholdUsed?: number;
 }
 
+interface TransformReviewState {
+  isOpen: boolean;
+  loading: boolean;
+  error: string | null;
+  fileName: string;
+  overlayUrl: string | null;
+  summaryLines: string[];
+}
+
 type IssueKey =
   | "warn-triangulated-corners"
   | "warn-many-multi-dominant-answers"
@@ -168,6 +177,14 @@ export function MainScannerDashboard() {
   const [darknessThreshold, setDarknessThreshold] = useState<number>(
     defaultSheetTemplate.scoring?.darknessThreshold ?? 0.28
   );
+  const [transformReview, setTransformReview] = useState<TransformReviewState>({
+    isOpen: false,
+    loading: false,
+    error: null,
+    fileName: "",
+    overlayUrl: null,
+    summaryLines: []
+  });
 
   useEffect(() => {
     activeTemplateRef.current = activeTemplate;
@@ -489,6 +506,63 @@ export function MainScannerDashboard() {
     }
   };
 
+  const openTransformReview = async (fileId: string) => {
+    const target = queueRef.current.find((item) => item.id === fileId);
+    if (!target || !target.result) {
+      setError("File has no parsed result yet.");
+      return;
+    }
+    setTransformReview({
+      isOpen: true,
+      loading: true,
+      error: null,
+      fileName: target.name,
+      overlayUrl: null,
+      summaryLines: []
+    });
+    try {
+      const steps = await buildVisualParsingSteps(target.file, referenceTemplateRef.current);
+      const roiStep = steps.find((step) => step.id === "regions");
+      const threshold = target.thresholdUsed ?? (referenceTemplateRef.current.scoring?.darknessThreshold ?? 0.28);
+      const multiDominantAnswers = target.result.answers.filter(
+        (answer) => countDominantLetters(answer.shadeScores, threshold) >= 2
+      ).length;
+      const blankAnswers = target.result.answers.filter((answer) => (answer.selected?.length ?? 0) === 0).length;
+      const ambiguousAnswers = target.result.answers.filter((answer) => answer.ambiguous).length;
+      const studentIdText = target.result.student.studentId.detected
+        .map((digit) => (digit === "" ? "_" : String(digit)))
+        .join("");
+      const examCodeText = target.result.student.examCode.detected
+        .map((digit) => (digit === "" ? "_" : String(digit)))
+        .join("");
+      const examSetText = target.result.student.examSet.selected.join(",") || "(blank)";
+      const summaryLines = [
+        `Student ID: ${studentIdText}`,
+        `Exam Code: ${examCodeText}`,
+        `Exam Set: ${examSetText}`,
+        `Threshold Used: ${threshold.toFixed(2)}`,
+        `Answers with 2+ dominant letters: ${multiDominantAnswers}/${target.result.answers.length}`,
+        `Blank answers: ${blankAnswers}`,
+        `Ambiguous answers: ${ambiguousAnswers}`,
+        `Corners detected: ${target.result.pipeline.cornerFoundCount ?? 0}/4`,
+        `Corners used: ${target.result.pipeline.cornerUsedCount ?? 0}/4`,
+        `Corners triangulated: ${target.result.pipeline.cornerTriangulatedCount ?? 0}`
+      ];
+      setTransformReview((current) => ({
+        ...current,
+        loading: false,
+        overlayUrl: roiStep?.imageDataUrl ?? null,
+        summaryLines
+      }));
+    } catch (reviewError) {
+      setTransformReview((current) => ({
+        ...current,
+        loading: false,
+        error: reviewError instanceof Error ? reviewError.message : "Unable to build transformed review."
+      }));
+    }
+  };
+
   const rebuildVisualStepsForTemplate = async (
     template: OMRTemplate,
     stageMessage: string
@@ -793,7 +867,6 @@ export function MainScannerDashboard() {
           <section className="queue-section">
             <header>
               <h3>Processing Queue</h3>
-              {scanStage ? <span className="subtle-text">{scanStage}</span> : null}
               {loading ? <button onClick={cancelBatch}>Cancel</button> : null}
               {!scanTemplateReady ? <span className="subtle-text">Loading template...</span> : null}
               <button onClick={() => void exportResultsToExcel()} disabled={exportBusy || queue.every((item) => !item.result)}>
@@ -803,6 +876,12 @@ export function MainScannerDashboard() {
                 Delete All
               </button>
             </header>
+            {scanStage ? (
+              <div className="processing-progress-panel">
+                <strong>Progress Details</strong>
+                <p>{scanStage}</p>
+              </div>
+            ) : null}
             {activeIssueDefinitions.length > 0 ? (
               <div className="issue-chip-row">
                 {activeIssueDefinitions.map((definition) => (
@@ -836,19 +915,26 @@ export function MainScannerDashboard() {
                       {item.detail ? <p className="subtle-text">{item.detail}</p> : null}
                       {item.diagnostics ? <p className="subtle-text">{item.diagnostics}</p> : null}
                       {(issueMapByFileId.get(item.id) ?? []).length > 0 ? (
-                        <p className="subtle-text">
-                          {(issueMapByFileId.get(item.id) ?? [])
-                            .map(
-                              (key) =>
-                                issueDefinitions.find((definition) => definition.key === key)?.label ??
-                                key
-                            )
-                            .join(" • ")}
-                        </p>
+                        <div className="file-issue-chip-row">
+                          {(issueMapByFileId.get(item.id) ?? []).map((key) => {
+                            const definition = issueDefinitions.find((entry) => entry.key === key);
+                            return (
+                              <span
+                                key={`${item.id}-${key}`}
+                                className={`issue-chip issue-chip-${definition?.kind ?? "warning"} issue-chip-card`}
+                              >
+                                {definition?.label ?? key}
+                              </span>
+                            );
+                          })}
+                        </div>
                       ) : null}
                     </div>
                     <div className="queue-actions">
                       <span className={`processing-badge processing-${item.status}`}>{item.status}</span>
+                      <button onClick={() => void openTransformReview(item.id)} disabled={!item.result}>
+                        Review Transform
+                      </button>
                       <button onClick={() => void openVisualDialog(item.id)}>Visual Parse / Template</button>
                       <button onClick={() => openOverrideDialog(item.id)} disabled={!item.result}>
                         Override & JSON
@@ -888,6 +974,51 @@ export function MainScannerDashboard() {
             <div className="actions">
               <button onClick={applyOverride}>Apply Override</button>
             </div>
+          </section>
+        </div>
+      ) : null}
+      {transformReview.isOpen ? (
+        <div className="override-backdrop" role="presentation">
+          <section className="transform-review-dialog" role="dialog" aria-modal="true">
+            <header className="modal-header">
+              <h2>Transformed ROI Review — {transformReview.fileName}</h2>
+              <button
+                onClick={() =>
+                  setTransformReview({
+                    isOpen: false,
+                    loading: false,
+                    error: null,
+                    fileName: "",
+                    overlayUrl: null,
+                    summaryLines: []
+                  })
+                }
+              >
+                Close
+              </button>
+            </header>
+            {transformReview.loading ? <p className="subtle-text">Preparing transformed preview...</p> : null}
+            {transformReview.error ? <p className="error">{transformReview.error}</p> : null}
+            {!transformReview.loading && !transformReview.error ? (
+              <div className="transform-review-grid">
+                <div className="transform-preview-pane">
+                  {transformReview.overlayUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={transformReview.overlayUrl} alt="Transformed ROI overlay" />
+                  ) : (
+                    <p className="subtle-text">ROI overlay not available.</p>
+                  )}
+                </div>
+                <div className="transform-summary-pane">
+                  <h3>Detected Shades Summary</h3>
+                  <ul>
+                    {transformReview.summaryLines.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ) : null}
           </section>
         </div>
       ) : null}
