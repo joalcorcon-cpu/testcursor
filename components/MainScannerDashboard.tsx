@@ -1,10 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { VisualParsingDialog } from "@/components/VisualParsingDialog";
+import {
+  buildRoiReadAreaStepsFromRectifiedDataUrl,
+  buildVisualParsingSteps,
+  type CornerWindowVisual,
+  type VisualParseStep
+} from "@/lib/omr/buildVisualParsingSteps";
+import { applyRoiBoxesToTemplate, type RoiBoxVisual } from "@/lib/omr/roiCalibration";
 import { processSheetFileInWorker, warmupOmrWorker } from "@/lib/omr/processSheetInWorker";
 import { prepareImageForScan } from "@/lib/omr/prepareImageForScan";
 import { defaultSheetTemplate } from "@/lib/templates/defaultSheetTemplate";
-import type { OMRResultJson, OMRTemplate } from "@/types/omr";
+import type { CornerSnapshot, OMRResultJson, OMRTemplate } from "@/types/omr";
 
 type QueueStatus = "queued" | "processing" | "done" | "error";
 
@@ -29,7 +37,7 @@ const formatBytes = (bytes: number) => {
 };
 
 export function MainScannerDashboard() {
-  const [activeTemplate] = useState<OMRTemplate>(() =>
+  const [activeTemplate, setActiveTemplate] = useState<OMRTemplate>(() =>
     JSON.parse(JSON.stringify(defaultSheetTemplate))
   );
   const activeTemplateRef = useRef<OMRTemplate>(
@@ -46,6 +54,12 @@ export function MainScannerDashboard() {
   const [overrideFileId, setOverrideFileId] = useState<string | null>(null);
   const [overrideDraft, setOverrideDraft] = useState("");
   const [overrideError, setOverrideError] = useState<string | null>(null);
+  const [visualDialogOpen, setVisualDialogOpen] = useState(false);
+  const [visualDialogLoading, setVisualDialogLoading] = useState(false);
+  const [visualDialogStage, setVisualDialogStage] = useState<string | null>(null);
+  const [visualDialogError, setVisualDialogError] = useState<string | null>(null);
+  const [visualSteps, setVisualSteps] = useState<VisualParseStep[]>([]);
+  const [activeVisualFileId, setActiveVisualFileId] = useState<string | null>(null);
 
   useEffect(() => {
     activeTemplateRef.current = activeTemplate;
@@ -215,6 +229,161 @@ export function MainScannerDashboard() {
     () => queue.find((item) => item.id === overrideFileId) ?? null,
     [queue, overrideFileId]
   );
+  const activeVisualFile = useMemo(
+    () => queue.find((item) => item.id === activeVisualFileId) ?? null,
+    [queue, activeVisualFileId]
+  );
+
+  const openVisualDialog = async (fileId: string) => {
+    const target = queueRef.current.find((item) => item.id === fileId);
+    if (!target) {
+      setError("File not found for visual parsing.");
+      return;
+    }
+    setActiveVisualFileId(fileId);
+    setVisualDialogOpen(true);
+    setVisualDialogLoading(true);
+    setVisualDialogError(null);
+    setVisualDialogStage("Preparing visual parsing steps...");
+    try {
+      const steps = await buildVisualParsingSteps(
+        target.file,
+        activeTemplateRef.current,
+        (stage) => setVisualDialogStage(stage)
+      );
+      setVisualSteps(steps);
+    } catch (dialogError) {
+      setVisualDialogError(
+        dialogError instanceof Error
+          ? dialogError.message
+          : "Unable to generate visual parsing steps."
+      );
+    } finally {
+      setVisualDialogLoading(false);
+      setVisualDialogStage(null);
+    }
+  };
+
+  const rebuildVisualStepsForTemplate = async (
+    template: OMRTemplate,
+    stageMessage: string
+  ): Promise<void> => {
+    if (!activeVisualFile || !visualDialogOpen) {
+      return;
+    }
+    setVisualDialogLoading(true);
+    setVisualDialogError(null);
+    setVisualDialogStage(stageMessage);
+    try {
+      const steps = await buildVisualParsingSteps(activeVisualFile.file, template, (stage) =>
+        setVisualDialogStage(stage)
+      );
+      setVisualSteps(steps);
+    } catch (dialogError) {
+      setVisualDialogError(
+        dialogError instanceof Error
+          ? dialogError.message
+          : "Unable to refresh visual parsing steps."
+      );
+    } finally {
+      setVisualDialogLoading(false);
+      setVisualDialogStage(null);
+    }
+  };
+
+  const applyCornerWindows = (windows: CornerWindowVisual[]) => {
+    const searchWindows = windows.reduce<NonNullable<OMRTemplate["cornerSearchWindows"]>>(
+      (accumulator, cornerWindow) => {
+        accumulator[cornerWindow.id] = {
+          x: cornerWindow.x,
+          y: cornerWindow.y,
+          w: cornerWindow.w,
+          h: cornerWindow.h
+        };
+        return accumulator;
+      },
+      {}
+    );
+    const currentTemplate = activeTemplateRef.current;
+    const nextCornerMarkers = currentTemplate.cornerMarkers.map((marker) => {
+      const cornerWindow = windows.find((window) => window.id === marker.id);
+      if (!cornerWindow) {
+        return marker;
+      }
+      const nextWidth = Math.max(0.004, marker.w);
+      const nextHeight = Math.max(0.004, marker.h);
+      const centerX = cornerWindow.x + cornerWindow.w / 2;
+      const centerY = cornerWindow.y + cornerWindow.h / 2;
+      return {
+        ...marker,
+        x: Math.min(1 - nextWidth, Math.max(0, centerX - nextWidth / 2)),
+        y: Math.min(1 - nextHeight, Math.max(0, centerY - nextHeight / 2)),
+        w: nextWidth,
+        h: nextHeight
+      };
+    });
+
+    const nextTemplate: OMRTemplate = {
+      ...currentTemplate,
+      cornerSearchWindows: searchWindows,
+      cornerMarkers: nextCornerMarkers
+    };
+    setActiveTemplate(nextTemplate);
+    setVisualDialogError(null);
+    setVisualSteps((current) =>
+      current.map((step) => (step.id === "corners" ? { ...step, cornerWindows: windows } : step))
+    );
+    void rebuildVisualStepsForTemplate(nextTemplate, "Refreshing transformed sheet preview...");
+  };
+
+  const captureCornerSnapshots = (
+    snapshots: Partial<Record<CornerWindowVisual["id"], CornerSnapshot>>
+  ) => {
+    const nextTemplate = {
+      ...activeTemplateRef.current,
+      cornerSnapshots: {
+        ...(activeTemplateRef.current.cornerSnapshots ?? {}),
+        ...snapshots
+      }
+    };
+    setActiveTemplate(nextTemplate);
+    setVisualDialogStage(
+      "Corner snapshots captured. Next scan will use quadrant template matching for corners."
+    );
+  };
+
+  const applyRoiBoxes = async (boxes: RoiBoxVisual[]) => {
+    const nextTemplate = applyRoiBoxesToTemplate(activeTemplateRef.current, boxes);
+    setActiveTemplate(nextTemplate);
+    setVisualDialogError(null);
+    const rectifiedStep = visualSteps.find((step) => step.id === "rectified");
+    if (rectifiedStep?.imageDataUrl) {
+      setVisualDialogLoading(true);
+      setVisualDialogError(null);
+      setVisualDialogStage("Updating ROI overlays without re-warping sheet...");
+      try {
+        const { regionsStep, readAreasStep } = await buildRoiReadAreaStepsFromRectifiedDataUrl(
+          rectifiedStep.imageDataUrl,
+          nextTemplate,
+          (stage) => setVisualDialogStage(stage)
+        );
+        setVisualSteps((current) =>
+          current.map((step) => {
+            if (step.id === "regions") return regionsStep;
+            if (step.id === "read-areas") return readAreasStep;
+            return step;
+          })
+        );
+      } catch {
+        await rebuildVisualStepsForTemplate(nextTemplate, "Refreshing ROI preview...");
+      } finally {
+        setVisualDialogLoading(false);
+        setVisualDialogStage(null);
+      }
+      return;
+    }
+    await rebuildVisualStepsForTemplate(nextTemplate, "Refreshing ROI preview...");
+  };
 
   return (
     <main className="main dashboard-main">
@@ -300,6 +469,7 @@ export function MainScannerDashboard() {
                     </div>
                     <div className="queue-actions">
                       <span className={`processing-badge processing-${item.status}`}>{item.status}</span>
+                      <button onClick={() => void openVisualDialog(item.id)}>Visual Parse / Template</button>
                       <button onClick={() => openOverrideDialog(item.id)} disabled={!item.result}>
                         Override & JSON
                       </button>
@@ -341,6 +511,20 @@ export function MainScannerDashboard() {
           </section>
         </div>
       ) : null}
+      <VisualParsingDialog
+        isOpen={visualDialogOpen}
+        loading={visualDialogLoading}
+        stage={visualDialogStage}
+        error={visualDialogError}
+        steps={visualSteps}
+        onApplyCornerWindows={applyCornerWindows}
+        onCaptureCornerSnapshots={captureCornerSnapshots}
+        onApplyRoiBoxes={applyRoiBoxes}
+        onClose={() => {
+          setVisualDialogOpen(false);
+          setActiveVisualFileId(null);
+        }}
+      />
     </main>
   );
 }

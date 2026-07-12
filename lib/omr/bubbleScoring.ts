@@ -69,10 +69,11 @@ export const pickSelections = (
     .filter(([, score]) => score >= minMarkThreshold && top[1] - score <= ambiguityGap)
     .map(([choice]) => choice);
   const confidence = clamp(top[1] - second[1], 0, 1);
+  const ambiguous = selected.length !== 1;
   return {
-    selected: selected.length > 0 ? selected : [],
+    selected: ambiguous ? [] : selected,
     confidence,
-    ambiguous: selected.length !== 1
+    ambiguous
   };
 };
 
