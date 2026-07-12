@@ -719,18 +719,23 @@ pre {
   width: 100%;
   height: auto;
   border-radius: 8px;
-  border: 1px solid #d0d5dd;
+  border: none;
 }
 
 .transform-overlay-stage {
   position: relative;
   width: 100%;
+  line-height: 0;
 }
 
 .transform-hotspot-layer {
   position: absolute;
   inset: 0;
   pointer-events: none;
+}
+
+.transform-overlay-stage img {
+  display: block;
 }
 
 .transform-overlay-checkbox {
