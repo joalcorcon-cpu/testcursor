@@ -51,6 +51,7 @@ export interface OMRTemplate {
   cornerSnapshots?: Partial<Record<CornerMarker["id"], CornerSnapshot>>;
   scoring?: {
     darknessThreshold?: number;
+    cornerAngleToleranceDegrees?: number;
   };
   roiCalibrationBoxes?: Partial<
     Record<
