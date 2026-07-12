@@ -12,39 +12,39 @@ export const bundledReferenceImages: BundledReferenceImage[] = [
     id: "sample-answer-sheet",
     title: "Sample Answer Sheet",
     description: "Reference answer sheet layout used by the premade template.",
-    href: "/reference/answer-sheet-reference.svg"
+    href: "/reference/answer-sheet-reference.jpg"
   },
   {
     id: "corner-tl",
     title: "Corner Snapshot TL",
     description: "Top-left corner snapshot used for matchTemplate.",
-    href: "/reference/corners/tl-snapshot.svg"
+    href: "/reference/corners/tl-snapshot.jpg"
   },
   {
     id: "corner-tr",
     title: "Corner Snapshot TR",
     description: "Top-right corner snapshot used for matchTemplate.",
-    href: "/reference/corners/tr-snapshot.svg"
+    href: "/reference/corners/tr-snapshot.jpg"
   },
   {
     id: "corner-br",
     title: "Corner Snapshot BR",
     description: "Bottom-right corner snapshot used for matchTemplate.",
-    href: "/reference/corners/br-snapshot.svg"
+    href: "/reference/corners/br-snapshot.jpg"
   },
   {
     id: "corner-bl",
     title: "Corner Snapshot BL",
     description: "Bottom-left corner snapshot used for matchTemplate.",
-    href: "/reference/corners/bl-snapshot.svg"
+    href: "/reference/corners/bl-snapshot.jpg"
   }
 ];
 
 export const bundledCornerSnapshotSources: Record<CornerMarker["id"], string> = {
-  tl: "/reference/corners/tl-snapshot.svg",
-  tr: "/reference/corners/tr-snapshot.svg",
-  br: "/reference/corners/br-snapshot.svg",
-  bl: "/reference/corners/bl-snapshot.svg"
+  tl: "/reference/corners/tl-snapshot.jpg",
+  tr: "/reference/corners/tr-snapshot.jpg",
+  br: "/reference/corners/br-snapshot.jpg",
+  bl: "/reference/corners/bl-snapshot.jpg"
 };
 
 // Script-provided Shadebox rectangles, normalized to transformed sheet dimensions.
