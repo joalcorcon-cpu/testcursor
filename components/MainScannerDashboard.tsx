@@ -533,6 +533,13 @@ export function MainScannerDashboard() {
         : null,
     [queue, transformReview.fileId]
   );
+  const answerSelectionByQuestion = useMemo(() => {
+    const map = new Map<number, ChoiceLabel[]>();
+    for (const answer of transformReviewItem?.result?.answers ?? []) {
+      map.set(answer.q, answer.selected ?? []);
+    }
+    return map;
+  }, [transformReviewItem?.result?.answers]);
 
   const openVisualDialog = async (fileId: string) => {
     const target = queueRef.current.find((item) => item.id === fileId);
@@ -656,6 +663,46 @@ export function MainScannerDashboard() {
             confidence: nextSelected.length === 1 ? 1 : 0
           }
         }
+      };
+      const threshold = item.thresholdUsed ?? (referenceTemplateRef.current.scoring?.darknessThreshold ?? 0.28);
+      nextSummaryLines = buildTransformSummary(nextResult, threshold);
+      return {
+        ...item,
+        result: nextResult,
+        status: "done",
+        detail: "Result overridden from transformed review"
+      };
+    });
+    if (nextSummaryLines) {
+      setTransformReview((current) => ({ ...current, summaryLines: nextSummaryLines ?? current.summaryLines }));
+    }
+  };
+
+  const applyTransformAnswerOverride = (question: number, choice: ChoiceLabel) => {
+    if (!transformReview.fileId) {
+      return;
+    }
+    let nextSummaryLines: string[] | null = null;
+    updateQueueItem(transformReview.fileId, (item) => {
+      if (!item.result) {
+        return item;
+      }
+      const nextAnswers = item.result.answers.map((answer) => {
+        if (answer.q !== question) {
+          return answer;
+        }
+        const isActive = answer.selected.includes(choice);
+        const nextSelected: ChoiceLabel[] = isActive ? [] : [choice];
+        return {
+          ...answer,
+          selected: nextSelected,
+          ambiguous: false,
+          confidence: nextSelected.length === 1 ? 1 : 0
+        };
+      });
+      const nextResult: OMRResultJson = {
+        ...item.result,
+        answers: nextAnswers
       };
       const threshold = item.thresholdUsed ?? (referenceTemplateRef.current.scoring?.darknessThreshold ?? 0.28);
       nextSummaryLines = buildTransformSummary(nextResult, threshold);
@@ -1119,8 +1166,124 @@ export function MainScannerDashboard() {
               <div className="transform-review-grid">
                 <div className="transform-preview-pane">
                   {transformReview.overlayUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={transformReview.overlayUrl} alt="Transformed ROI overlay" />
+                    <div className="transform-overlay-stage">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={transformReview.overlayUrl} alt="Transformed ROI overlay" />
+                      {transformReviewItem?.result ? (
+                        <div className="transform-hotspot-layer" aria-label="Interactive ROI override layer">
+                          {referenceTemplateRef.current.studentId.columns.flatMap((row, rowIndex) =>
+                            row.map((bubble, digit) => {
+                              const active =
+                                transformReviewItem.result?.student.studentId.detected[rowIndex] === digit;
+                              return (
+                                <button
+                                  key={`overlay-student-${rowIndex}-${digit}`}
+                                  type="button"
+                                  title={`Student ID digit ${rowIndex + 1}: ${digit}`}
+                                  aria-label={`Student ID digit ${rowIndex + 1}, set ${digit}`}
+                                  className={`transform-overlay-checkbox transform-overlay-checkbox-student${
+                                    active ? " transform-overlay-checkbox-active" : ""
+                                  }`}
+                                  style={{
+                                    left: `${(bubble.x + bubble.w / 2) * 100}%`,
+                                    top: `${(bubble.y + bubble.h / 2) * 100}%`
+                                  }}
+                                  onClick={() =>
+                                    applyTransformDigitOverride(
+                                      "studentId",
+                                      rowIndex,
+                                      active ? "" : digit
+                                    )
+                                  }
+                                >
+                                  {digit}
+                                </button>
+                              );
+                            })
+                          )}
+                          {referenceTemplateRef.current.examCode.columns.flatMap((row, rowIndex) =>
+                            row.map((bubble, digit) => {
+                              const active =
+                                transformReviewItem.result?.student.examCode.detected[rowIndex] === digit;
+                              return (
+                                <button
+                                  key={`overlay-exam-code-${rowIndex}-${digit}`}
+                                  type="button"
+                                  title={`Exam Code digit ${rowIndex + 1}: ${digit}`}
+                                  aria-label={`Exam Code digit ${rowIndex + 1}, set ${digit}`}
+                                  className={`transform-overlay-checkbox transform-overlay-checkbox-exam-code${
+                                    active ? " transform-overlay-checkbox-active" : ""
+                                  }`}
+                                  style={{
+                                    left: `${(bubble.x + bubble.w / 2) * 100}%`,
+                                    top: `${(bubble.y + bubble.h / 2) * 100}%`
+                                  }}
+                                  onClick={() =>
+                                    applyTransformDigitOverride(
+                                      "examCode",
+                                      rowIndex,
+                                      active ? "" : digit
+                                    )
+                                  }
+                                >
+                                  {digit}
+                                </button>
+                              );
+                            })
+                          )}
+                          {(Object.entries(referenceTemplateRef.current.examSet.choices) as Array<
+                            [ChoiceLabel, (typeof referenceTemplateRef.current.examSet.choices)[ChoiceLabel]]
+                          >).map(([choice, bubble]) => {
+                            const active =
+                              transformReviewItem.result?.student.examSet.selected.includes(choice) ?? false;
+                            return (
+                              <button
+                                key={`overlay-exam-set-${choice}`}
+                                type="button"
+                                title={`Exam Set ${choice}`}
+                                aria-label={`Exam Set ${choice}`}
+                                className={`transform-overlay-checkbox transform-overlay-checkbox-exam-set${
+                                  active ? " transform-overlay-checkbox-active" : ""
+                                }`}
+                                style={{
+                                  left: `${(bubble.x + bubble.w / 2) * 100}%`,
+                                  top: `${(bubble.y + bubble.h / 2) * 100}%`
+                                }}
+                                onClick={() => applyTransformExamSetOverride(choice)}
+                              >
+                                {choice}
+                              </button>
+                            );
+                          })}
+                          {referenceTemplateRef.current.answers.flatMap((answer) =>
+                            (Object.entries(answer.choices) as Array<
+                              [ChoiceLabel, (typeof answer.choices)[ChoiceLabel]]
+                            >).map(([choice, bubble]) => {
+                              const selected = answerSelectionByQuestion.get(answer.question) ?? [];
+                              const active = selected.includes(choice);
+                              return (
+                                <button
+                                  key={`overlay-answer-${answer.question}-${choice}`}
+                                  type="button"
+                                  title={`Q${answer.question} ${choice}`}
+                                  aria-label={`Question ${answer.question}, choice ${choice}`}
+                                  className={`transform-overlay-checkbox transform-overlay-checkbox-answer${
+                                    active ? " transform-overlay-checkbox-active" : ""
+                                  }`}
+                                  style={{
+                                    left: `${(bubble.x + bubble.w / 2) * 100}%`,
+                                    top: `${(bubble.y + bubble.h / 2) * 100}%`
+                                  }}
+                                  onClick={() => applyTransformAnswerOverride(answer.question, choice)}
+                                >
+                                  {choice}
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
                   ) : (
                     <p className="subtle-text">ROI overlay not available.</p>
                   )}
@@ -1132,103 +1295,10 @@ export function MainScannerDashboard() {
                       <li key={line}>{line}</li>
                     ))}
                   </ul>
-                  {transformReviewItem?.result ? (
-                    <div className="transform-override-panel">
-                      <h4>Manual ROI Override</h4>
-                      <p className="subtle-text">
-                        Click a value to force the parsed output. Click an active value again to clear it.
-                      </p>
-                      <div className="transform-override-grid">
-                        <strong>Student ID</strong>
-                        {transformReviewItem.result.student.studentId.detected.map((value, rowIndex) => (
-                          <div key={`student-id-${rowIndex}`} className="transform-override-row">
-                            <span className="subtle-text">Digit {rowIndex + 1}</span>
-                            <div className="transform-choice-row">
-                              <button
-                                type="button"
-                                className={`transform-choice-chip${
-                                  value === "" ? " transform-choice-chip-active" : ""
-                                }`}
-                                onClick={() => applyTransformDigitOverride("studentId", rowIndex, "")}
-                              >
-                                blank
-                              </button>
-                              {Array.from({ length: 10 }, (_, digit) => (
-                                <button
-                                  key={`student-id-${rowIndex}-${digit}`}
-                                  type="button"
-                                  className={`transform-choice-chip${
-                                    value === digit ? " transform-choice-chip-active" : ""
-                                  }`}
-                                  onClick={() =>
-                                    applyTransformDigitOverride(
-                                      "studentId",
-                                      rowIndex,
-                                      value === digit ? "" : digit
-                                    )
-                                  }
-                                >
-                                  {digit}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                        <strong>Exam Code</strong>
-                        {transformReviewItem.result.student.examCode.detected.map((value, rowIndex) => (
-                          <div key={`exam-code-${rowIndex}`} className="transform-override-row">
-                            <span className="subtle-text">Digit {rowIndex + 1}</span>
-                            <div className="transform-choice-row">
-                              <button
-                                type="button"
-                                className={`transform-choice-chip${
-                                  value === "" ? " transform-choice-chip-active" : ""
-                                }`}
-                                onClick={() => applyTransformDigitOverride("examCode", rowIndex, "")}
-                              >
-                                blank
-                              </button>
-                              {Array.from({ length: 10 }, (_, digit) => (
-                                <button
-                                  key={`exam-code-${rowIndex}-${digit}`}
-                                  type="button"
-                                  className={`transform-choice-chip${
-                                    value === digit ? " transform-choice-chip-active" : ""
-                                  }`}
-                                  onClick={() =>
-                                    applyTransformDigitOverride(
-                                      "examCode",
-                                      rowIndex,
-                                      value === digit ? "" : digit
-                                    )
-                                  }
-                                >
-                                  {digit}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                        <strong>Exam Set</strong>
-                        <div className="transform-choice-row">
-                          {(["A", "B", "C", "D"] as ChoiceLabel[]).map((choice) => (
-                            <button
-                              key={`exam-set-${choice}`}
-                              type="button"
-                              className={`transform-choice-chip${
-                                transformReviewItem.result?.student.examSet.selected.includes(choice)
-                                  ? " transform-choice-chip-active"
-                                  : ""
-                              }`}
-                              onClick={() => applyTransformExamSetOverride(choice)}
-                            >
-                              {choice}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
+                  <p className="subtle-text">
+                    Override values directly on the transformed image by clicking the checkbox chips on each ROI
+                    bubble (Student ID, Exam Code, Exam Set, and Answers 1–100).
+                  </p>
                 </div>
               </div>
             ) : null}
