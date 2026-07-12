@@ -100,7 +100,7 @@ const pickSelections = (scores, minMarkThreshold = 0.18, ambiguityGap = 0.03) =>
 
 const pickDigitByDominance = (
   scores,
-  { minTopScore = 0.12, minGapToSecond = 0.025, minStdMultiplier = 1.2 } = {}
+  { minTopScore = 0.3, minGapToSecond = 0.025, minStdMultiplier = 1.2 } = {}
 ) => {
   if (!scores || scores.length === 0) {
     return { detected: "", confidence: 0 };

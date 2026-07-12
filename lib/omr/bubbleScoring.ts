@@ -91,7 +91,7 @@ export const pickDigitByDominance = (
     return { detected: "" as const, confidence: 0 };
   }
   const {
-    minTopScore = 0.12,
+    minTopScore = 0.3,
     minGapToSecond = 0.025,
     minStdMultiplier = 1.2
   } = options;
