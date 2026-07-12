@@ -149,6 +149,17 @@ const excelHeaders = [
 const clampThreshold = (value: number) =>
   Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0.28;
 
+const columnIndexToExcelLetter = (columnIndex: number): string => {
+  let value = Math.max(1, Math.floor(columnIndex));
+  let result = "";
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    result = String.fromCharCode(65 + remainder) + result;
+    value = Math.floor((value - 1) / 26);
+  }
+  return result;
+};
+
 const buildTransformSummary = (result: OMRResultJson, threshold: number): string[] => {
   const multiDominantAnswers = result.answers.filter(
     (answer) => countDominantLetters(answer.shadeScores, threshold) >= 2
@@ -970,54 +981,64 @@ export function MainScannerDashboard() {
     setExportBusy(true);
     setError(null);
     try {
-      const XLSX = await import("xlsx");
       const rows = [Array.from(excelHeaders), ...doneRows.map((item) => buildExcelRow(item))];
-      const sheet = XLSX.utils.aoa_to_sheet(rows);
-      const range = XLSX.utils.decode_range(sheet["!ref"] ?? "A1");
-      const colCount = range.e.c - range.s.c + 1;
-      const columnWidths = new Array<number>(colCount).fill(0);
-      for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
-        for (let colIndex = 0; colIndex < colCount; colIndex += 1) {
-          const cellValue = rows[rowIndex]?.[colIndex] ?? "";
-          const cellText = String(cellValue);
-          columnWidths[colIndex] = Math.max(columnWidths[colIndex], cellText.length);
-          const columnFirstValue = String(rows[0]?.[colIndex] ?? "").trim();
-          const rowFirstValue = String(rows[rowIndex]?.[0] ?? "").trim();
-          if (
-            rowIndex > 0 &&
-            columnFirstValue !== "" &&
-            rowFirstValue !== "" &&
-            cellText.trim() === ""
-          ) {
-            const address = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
-            const cell = ((sheet as Record<string, unknown>)[address] ?? {
-              t: "s",
-              v: ""
-            }) as Record<string, unknown>;
-            cell.s = {
-              fill: {
-                patternType: "solid",
-                fgColor: { rgb: "FFFDE68A" }
-              }
-            };
-            (sheet as Record<string, unknown>)[address] = cell;
-          }
+      const ExcelJsModule = await import("exceljs");
+      const workbook = new ExcelJsModule.Workbook();
+      const worksheet = workbook.addWorksheet("results", {
+        views: [{ state: "frozen", ySplit: 1 }]
+      });
+
+      worksheet.addRows(rows);
+
+      for (let col = 1; col <= excelHeaders.length; col += 1) {
+        let maxLen = 0;
+        for (let row = 1; row <= rows.length; row += 1) {
+          const rawValue = worksheet.getRow(row).getCell(col).value;
+          const textValue =
+            rawValue === null || rawValue === undefined
+              ? ""
+              : typeof rawValue === "object" && "text" in rawValue
+                ? String(rawValue.text ?? "")
+                : String(rawValue);
+          maxLen = Math.max(maxLen, textValue.length);
         }
+        worksheet.getColumn(col).width = Math.min(60, Math.max(10, maxLen + 2));
       }
-      (sheet as Record<string, unknown>)["!cols"] = columnWidths.map((width) => ({
-        wch: Math.min(60, Math.max(10, width + 2))
-      }));
-      (sheet as Record<string, unknown>)["!freeze"] = {
-        xSplit: 0,
-        ySplit: 1,
-        topLeftCell: "A2",
-        activePane: "bottomLeft",
-        state: "frozen"
-      };
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, sheet, "results");
+
+      if (rows.length >= 2 && excelHeaders.length >= 2) {
+        const lastColumnLetter = columnIndexToExcelLetter(excelHeaders.length);
+        worksheet.addConditionalFormatting({
+          ref: `B2:${lastColumnLetter}${rows.length}`,
+          rules: [
+            {
+              type: "expression",
+              priority: 1,
+              formulae: ['AND(B$1<>"",$A2<>"",B2="")'],
+              style: {
+                fill: {
+                  type: "pattern",
+                  pattern: "solid",
+                  fgColor: { argb: "FFFDE68A" }
+                }
+              }
+            }
+          ]
+        });
+      }
+
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      XLSX.writeFile(workbook, `aerc-omr-results-${timestamp}.xlsx`);
+      const outputBuffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([outputBuffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      });
+      const downloadUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = downloadUrl;
+      anchor.download = `aerc-omr-results-${timestamp}.xlsx`;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(downloadUrl);
     } catch (exportError) {
       setError(exportError instanceof Error ? exportError.message : "Unable to export Excel file.");
     } finally {
