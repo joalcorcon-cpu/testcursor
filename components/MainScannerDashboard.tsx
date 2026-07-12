@@ -42,7 +42,11 @@ export function MainScannerDashboard() {
   const [activeTemplate, setActiveTemplate] = useState<OMRTemplate>(() =>
     JSON.parse(JSON.stringify(defaultSheetTemplate))
   );
+  const [scanTemplateReady, setScanTemplateReady] = useState(false);
   const activeTemplateRef = useRef<OMRTemplate>(
+    JSON.parse(JSON.stringify(defaultSheetTemplate))
+  );
+  const referenceTemplateRef = useRef<OMRTemplate>(
     JSON.parse(JSON.stringify(defaultSheetTemplate))
   );
   const queueRef = useRef<QueueFileItem[]>([]);
@@ -87,14 +91,19 @@ export function MainScannerDashboard() {
       if (!snapshots.tl || !snapshots.tr || !snapshots.br || !snapshots.bl) {
         return;
       }
-      setActiveTemplate((current) => ({
-        ...current,
+      const nextReferenceTemplate: OMRTemplate = {
+        ...referenceTemplateRef.current,
         cornerSnapshots: {
-          ...(current.cornerSnapshots ?? {}),
+          ...(referenceTemplateRef.current.cornerSnapshots ?? {}),
           ...snapshots
         }
-      }));
+      };
+      referenceTemplateRef.current = nextReferenceTemplate;
+      // Visual dialog starts from bundled references, while scan uses
+      // this reference template regardless of later draggable edits.
+      setActiveTemplate(nextReferenceTemplate);
       setCornerReferencesReady(true);
+      setScanTemplateReady(true);
     });
     return () => {
       disposed = true;
@@ -157,7 +166,7 @@ export function MainScannerDashboard() {
         workerBuffer,
         prepared.width,
         prepared.height,
-        activeTemplateRef.current,
+        referenceTemplateRef.current,
         (stage) => {
           setScanStage(`Processing ${index + 1}/${total}: ${item.name} — ${stage}`);
           updateQueueItem(item.id, (current) => ({ ...current, detail: stage }));
@@ -180,7 +189,7 @@ export function MainScannerDashboard() {
   };
 
   const runBatchProcess = async () => {
-    if (!cornerReferencesReady) {
+    if (!scanTemplateReady) {
       setError("Corner reference snapshots are still loading. Please retry in a moment.");
       return;
     }
@@ -439,7 +448,7 @@ export function MainScannerDashboard() {
               <h2>OMR Scanner</h2>
               <p>Upload OMR sheets for automated grading and analysis</p>
               <p className="subtle-text">
-                Corner references: {cornerReferencesReady ? "Loaded (4/4)" : "Loading..."}
+                Scan template source: {scanTemplateReady ? "Bundled references active" : "Loading references..."}
               </p>
             </div>
             <div className="actions">
