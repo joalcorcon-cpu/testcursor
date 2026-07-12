@@ -558,14 +558,14 @@ const buildCornerAngleDiagnostics = (corners) => {
     bl: cornerAngleDegrees(corners[2], corners[3], corners[0])
   };
   const maxDeviation = Math.max(
-    Math.abs(angles.tl - 90),
-    Math.abs(angles.tr - 90),
-    Math.abs(angles.br - 90),
-    Math.abs(angles.bl - 90)
+    Math.abs(angles.tl - RIGHT_ANGLE_DEGREES),
+    Math.abs(angles.tr - RIGHT_ANGLE_DEGREES),
+    Math.abs(angles.br - RIGHT_ANGLE_DEGREES),
+    Math.abs(angles.bl - RIGHT_ANGLE_DEGREES)
   );
   return {
     angles,
-    uneven: maxDeviation > 10
+    uneven: maxDeviation > ANGLE_ALLOWANCE_DEGREES
   };
 };
 
@@ -574,10 +574,10 @@ const computeCornerMaxDeviation = (angles) => {
     return Infinity;
   }
   return Math.max(
-    Math.abs(angles.tl - 90),
-    Math.abs(angles.tr - 90),
-    Math.abs(angles.br - 90),
-    Math.abs(angles.bl - 90)
+    Math.abs(angles.tl - RIGHT_ANGLE_DEGREES),
+    Math.abs(angles.tr - RIGHT_ANGLE_DEGREES),
+    Math.abs(angles.br - RIGHT_ANGLE_DEGREES),
+    Math.abs(angles.bl - RIGHT_ANGLE_DEGREES)
   );
 };
 
@@ -592,6 +592,10 @@ const computeCornerPolygonArea = (corners) =>
         corners[3].x * corners[2].y +
         corners[0].x * corners[3].y)
   ) / 2;
+
+const RIGHT_ANGLE_DEGREES = 90;
+const ANGLE_ALLOWANCE_PERCENT = 5;
+const ANGLE_ALLOWANCE_DEGREES = (RIGHT_ANGLE_DEGREES * ANGLE_ALLOWANCE_PERCENT) / 100;
 
 const scoreDigitColumns = (cv, thresholded, columns, darknessThreshold) => {
   const shadeScores = columns.map((column) =>
@@ -871,7 +875,10 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
   const foundAfterTriangulationCount = Object.keys(pointsById).length;
   const triangulatedFromMissingCount = Math.max(0, foundAfterTriangulationCount - initialFoundCount);
   let correctedMisalignedCount = 0;
-  if (initialFoundCount === 4 && computeCornerMaxDeviation(angleDiagnostics.angles) > 8) {
+  if (
+    initialFoundCount === 4 &&
+    computeCornerMaxDeviation(angleDiagnostics.angles) > ANGLE_ALLOWANCE_DEGREES
+  ) {
     const currentDeviation = computeCornerMaxDeviation(angleDiagnostics.angles);
     let bestCorrection = null;
     for (const marker of orderedMarkers) {
@@ -903,7 +910,7 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
       }
       const candidateDiagnostics = buildCornerAngleDiagnostics(candidateCorners);
       const candidateDeviation = computeCornerMaxDeviation(candidateDiagnostics.angles);
-      if (candidateDeviation + 1 >= currentDeviation) {
+      if (candidateDeviation + 0.25 >= currentDeviation) {
         continue;
       }
       if (!bestCorrection || candidateDeviation < bestCorrection.deviation) {
@@ -916,7 +923,7 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
         };
       }
     }
-    if (bestCorrection && bestCorrection.deviation + 1 < currentDeviation) {
+    if (bestCorrection && bestCorrection.deviation + 0.25 < currentDeviation) {
       pointsById[bestCorrection.id] = bestCorrection.point;
       corners = bestCorrection.corners;
       angleDiagnostics = bestCorrection.diagnostics;
