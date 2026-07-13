@@ -597,6 +597,32 @@ export function MainScannerDashboard() {
         : null,
     [queue, transformReview.fileId]
   );
+  useEffect(() => {
+    const shouldLockBodyScroll =
+      visualDialogOpen || Boolean(overrideFileId) || transformReview.isOpen;
+    if (!shouldLockBodyScroll || typeof window === "undefined") {
+      return;
+    }
+    const { body } = document;
+    const scrollY = window.scrollY;
+    const previousOverflow = body.style.overflow;
+    const previousPosition = body.style.position;
+    const previousTop = body.style.top;
+    const previousWidth = body.style.width;
+
+    body.style.overflow = "hidden";
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.width = "100%";
+
+    return () => {
+      body.style.overflow = previousOverflow;
+      body.style.position = previousPosition;
+      body.style.top = previousTop;
+      body.style.width = previousWidth;
+      window.scrollTo(0, scrollY);
+    };
+  }, [visualDialogOpen, overrideFileId, transformReview.isOpen]);
   const answerSelectionByQuestion = useMemo(() => {
     const map = new Map<number, ChoiceLabel[]>();
     for (const answer of transformReviewItem?.result?.answers ?? []) {
