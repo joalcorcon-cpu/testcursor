@@ -1,19 +1,37 @@
 :root {
-  color-scheme: light;
+  color-scheme: dark;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
-  --brand-primary: #142868;
-  --brand-accent: #f59e0b;
-  --brand-surface: #f4f6fd;
+  --brand-primary: #3366ff;
+  --brand-secondary: #ff8533;
+  --brand-accent: #528bff;
+  --on-brand: #ffffff;
+  --bg: #0b0f19;
+  --on-bg: #f9fafb;
+  --secondary-bg: #161b26;
+  --surface: #1f242f;
+  --on-surface: #f9fafb;
+  --surface-variant: #2e3545;
+  --on-surface-variant: #98a2b3;
+  --text-primary: #f9fafb;
+  --text-secondary: #98a2b3;
+  --text-hint: #667085;
+  --outline: #344054;
+  --divider: #2e3545;
+  --status-success: #32d583;
+  --status-warning: #fec84b;
+  --status-error: #fda29b;
+  --status-info: #84adff;
+  --brand-surface: var(--bg);
 }
 
 body {
   margin: 0;
-  font-family: Arial, Helvetica, sans-serif;
-  background: var(--brand-surface);
-  color: var(--brand-primary);
+  font-family: "Plus Jakarta Sans", Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text-primary);
 }
 
 .main {
@@ -161,8 +179,9 @@ select {
 
 button {
   border-radius: 8px;
-  border: 1px solid #c5cbe0;
-  background: transparent;
+  border: 1px solid var(--outline);
+  background: var(--surface);
+  color: var(--on-surface);
   padding: 0.45rem 0.8rem;
   cursor: pointer;
 }
@@ -177,9 +196,10 @@ button:disabled {
 }
 
 .subtle-text {
-  opacity: 0.8;
+  opacity: 1;
   font-size: 0.9rem;
   margin-top: 0.6rem;
+  color: var(--text-secondary);
 }
 
 pre {
@@ -1092,4 +1112,153 @@ pre {
   .appbar-menu {
     display: none;
   }
+}
+
+/* Design-system dark theme overrides */
+.appbar {
+  background: var(--secondary-bg);
+  border-color: var(--outline);
+}
+
+.appbar-left {
+  color: var(--text-primary);
+}
+
+.dashboard-shell {
+  background: var(--secondary-bg);
+  border-color: var(--outline);
+}
+
+.dashboard-sidebar {
+  background: var(--secondary-bg);
+  border-right-color: var(--divider);
+}
+
+.sidebar-brand,
+.sidebar-link {
+  color: var(--text-primary);
+}
+
+.sidebar-brand span,
+.dashboard-header p,
+.upload-dropzone p,
+.processing-progress-panel p {
+  color: var(--text-secondary);
+}
+
+.sidebar-link {
+  border-color: var(--outline);
+  background: var(--surface);
+}
+
+.sidebar-link-active {
+  border-color: var(--brand-primary);
+  background: color-mix(in oklab, var(--brand-primary) 14%, var(--surface));
+}
+
+.dashboard-content {
+  background: var(--bg);
+}
+
+.dashboard-title {
+  color: var(--text-primary);
+}
+
+.threshold-control {
+  color: var(--text-secondary);
+}
+
+.threshold-control input,
+input,
+select {
+  background: var(--surface);
+  border-color: var(--outline);
+  color: var(--text-primary);
+}
+
+.upload-dropzone {
+  border-color: var(--brand-primary);
+  background: var(--surface);
+}
+
+.drop-action {
+  border-color: var(--brand-primary);
+  background: var(--brand-primary);
+  color: var(--on-brand);
+}
+
+.queue-card,
+.processing-progress-panel,
+.issue-chip,
+.override-dialog,
+.transform-review-dialog,
+.transform-preview-pane,
+.transform-summary-pane,
+.transform-answer-list,
+.transform-answer-row,
+.metric-card {
+  background: var(--surface);
+  border-color: var(--outline);
+  color: var(--text-primary);
+}
+
+.issue-chip-warning {
+  border-color: var(--status-warning);
+  color: #2f2200;
+  background: color-mix(in oklab, var(--status-warning) 80%, black);
+}
+
+.issue-chip-error {
+  border-color: var(--status-error);
+  color: #3a0d14;
+  background: color-mix(in oklab, var(--status-error) 75%, black);
+}
+
+.issue-chip-ok {
+  border-color: var(--status-success);
+  color: #072a19;
+  background: color-mix(in oklab, var(--status-success) 75%, black);
+}
+
+.queue-icon-button {
+  background: var(--surface-variant);
+  border-color: var(--outline);
+  color: var(--text-primary);
+}
+
+.queue-icon-button-destructive {
+  border-color: var(--status-error);
+  background: color-mix(in oklab, var(--status-error) 30%, var(--surface));
+  color: #ffd5da;
+}
+
+.destructive-filled {
+  border-color: #d92d20;
+  background: #d92d20;
+  color: #ffffff;
+}
+
+.excel-icon {
+  border-color: var(--status-success);
+  background: var(--status-success);
+}
+
+.modal-card {
+  background: var(--secondary-bg);
+  border-color: var(--outline);
+}
+
+.step-card,
+.corner-editor-surface,
+.step-card img {
+  border-color: var(--outline);
+  background: var(--surface);
+}
+
+.transform-overlay-checkbox {
+  border-color: var(--on-surface-variant);
+}
+
+.transform-overlay-checkbox-active {
+  border-color: var(--brand-primary);
 }
