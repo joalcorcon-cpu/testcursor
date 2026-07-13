@@ -55,12 +55,12 @@ interface IssueDefinition {
 const issueDefinitions: IssueDefinition[] = [
   {
     key: "warn-triangulated-corners",
-    label: "Less than 4 corners detected (triangulation used)",
+    label: "Uneven Corners Detected (Triangulation used)",
     kind: "warning"
   },
   {
     key: "warn-uneven-corners",
-    label: "Uneven Corners Detected (Triangulation used)",
+    label: "Uneven corners detected (manual corner adjustment needed)",
     kind: "warning"
   },
   {
@@ -101,7 +101,7 @@ const getItemIssues = (item: QueueFileItem): IssueKey[] => {
   if ((pipeline.cornerFoundCount ?? 4) < 4 || (pipeline.cornerTriangulatedCount ?? 0) > 0) {
     issues.push("warn-triangulated-corners");
   }
-  if (pipeline.cornerUneven) {
+  if (pipeline.cornerUneven && (pipeline.cornerTriangulatedCount ?? 0) === 0) {
     issues.push("warn-uneven-corners");
   }
 
