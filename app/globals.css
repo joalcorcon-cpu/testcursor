@@ -544,11 +544,16 @@ pre {
 }
 
 .upload-dropzone {
+  width: min(100%, 720px);
+  min-height: 180px;
+  margin-inline: auto;
+  box-sizing: border-box;
   border: 2px dashed var(--brand-primary);
   border-radius: 14px;
   padding: 1.25rem;
   background: #f8f9fc;
   display: grid;
+  align-content: center;
   justify-items: center;
   text-align: center;
   gap: 0.4rem;
