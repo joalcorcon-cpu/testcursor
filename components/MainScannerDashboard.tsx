@@ -1292,7 +1292,12 @@ export function MainScannerDashboard() {
                           }
                           if (item.status === "done" && item.result) {
                             return (
-                              <span className="issue-chip issue-chip-ok issue-chip-card" key={`${item.id}-ok`}>
+                              <span
+                                className="issue-chip issue-chip-ok issue-chip-card"
+                                key={`${item.id}-ok`}
+                                aria-label="Okay"
+                              >
+                                <span aria-hidden="true">✓</span>{" "}
                                 Okay
                               </span>
                             );
