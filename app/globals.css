@@ -477,6 +477,9 @@ pre {
   background: #ffffff;
   color: var(--brand-primary);
   text-align: left;
+  display: block;
+  padding: 0.5rem 0.8rem;
+  text-decoration: none;
 }
 
 .sidebar-link-active {
@@ -1274,4 +1277,709 @@ select {
 
 .transform-overlay-checkbox-vacant {
   border-color: var(--status-warning);
+}
+
+.grader-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.grader-ready-badge,
+.grader-step {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  border: 1px solid var(--outline);
+  border-radius: 999px;
+  padding: 0.25rem 0.55rem;
+  color: var(--text-secondary);
+  background: var(--surface);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.grader-ready-badge.is-ready {
+  border-color: var(--status-success);
+  color: var(--status-success);
+}
+
+.grader-setup-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.75fr) minmax(320px, 1.25fr);
+  gap: 0.8rem;
+}
+
+.grader-panel {
+  border: 1px solid var(--outline);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.grader-panel select {
+  width: 100%;
+}
+
+.grader-guidance ul {
+  margin: 0;
+  padding-left: 1.15rem;
+  display: grid;
+  gap: 0.4rem;
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+}
+
+.grader-dropzone-disabled {
+  border-color: var(--outline);
+  opacity: 0.7;
+}
+
+.drop-action.is-disabled {
+  pointer-events: none;
+  background: var(--surface-variant);
+  border-color: var(--outline);
+  color: var(--text-hint);
+}
+
+.grader-results {
+  border: 1px solid var(--outline);
+  border-radius: 12px;
+  padding: 0.9rem;
+  background: var(--secondary-bg);
+}
+
+.grader-error {
+  border: 1px solid color-mix(in oklab, var(--status-error) 60%, var(--outline));
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--status-error) 12%, var(--surface));
+  padding: 0.65rem;
+  margin: 0;
+}
+
+.grader-empty-state {
+  border: 1px dashed var(--outline);
+  border-radius: 10px;
+  min-height: 110px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 0.35rem;
+  color: var(--text-secondary);
+}
+
+.grader-empty-state strong {
+  color: var(--text-primary);
+}
+
+.grader-result-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.grader-result-card {
+  border: 1px solid var(--outline);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 0.8rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.9rem;
+}
+
+.grader-result-main {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.grader-result-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.65rem;
+}
+
+.grader-result-title p,
+.grader-result-detail {
+  margin: 0.25rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.grader-score-row {
+  display: grid;
+  grid-template-columns: auto auto repeat(4, minmax(62px, 1fr));
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.grader-score,
+.grader-percentage,
+.grader-stat {
+  border: 1px solid var(--outline);
+  border-radius: 9px;
+  padding: 0.55rem;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  min-height: 48px;
+}
+
+.grader-score {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  color: var(--brand-accent);
+}
+
+.grader-score strong,
+.grader-percentage {
+  font-size: 1.35rem;
+}
+
+.grader-score span,
+.grader-stat span {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+}
+
+.grader-stat strong {
+  font-size: 1rem;
+}
+
+.grader-stat.is-correct {
+  border-color: color-mix(in oklab, var(--status-success) 60%, var(--outline));
+}
+
+.grader-stat.is-wrong {
+  border-color: color-mix(in oklab, var(--status-error) 60%, var(--outline));
+}
+
+.grader-stat.is-blank {
+  border-color: color-mix(in oklab, var(--status-info) 55%, var(--outline));
+}
+
+.grader-stat.is-ambiguous {
+  border-color: color-mix(in oklab, var(--status-warning) 60%, var(--outline));
+}
+
+.grader-quality-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.grader-quality-row span {
+  border-radius: 999px;
+  background: var(--surface-variant);
+  padding: 0.24rem 0.5rem;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+}
+
+.grader-quality-row .is-warning {
+  color: var(--status-warning);
+}
+
+.grader-result-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.grader-review-dialog {
+  width: min(1280px, 100%);
+  max-height: calc(100dvh - (var(--safe-top) + var(--safe-bottom) + 2rem));
+  overflow: auto;
+  border: 1px solid var(--outline);
+  border-radius: 12px;
+  padding: 1rem;
+  background: var(--secondary-bg);
+  display: grid;
+  gap: 0.8rem;
+}
+
+.grader-review-dialog .modal-header h2,
+.grader-review-dialog .modal-header p {
+  margin: 0;
+}
+
+.grader-review-dialog .modal-header p {
+  margin-top: 0.3rem;
+  color: var(--brand-accent);
+  font-weight: 700;
+}
+
+.grader-review-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(460px, 0.9fr);
+  gap: 0.85rem;
+  min-height: 0;
+}
+
+.grader-review-preview {
+  border: 1px solid var(--outline);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 0.5rem;
+  overflow: auto;
+  align-self: start;
+}
+
+.grader-review-preview img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 7px;
+}
+
+.grader-answer-review {
+  border: 1px solid var(--outline);
+  border-radius: 10px;
+  background: var(--surface);
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.grader-answer-review-header {
+  padding: 0.7rem;
+  border-bottom: 1px solid var(--divider);
+  display: grid;
+  gap: 0.2rem;
+}
+
+.grader-answer-review-header span {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.grader-answer-table {
+  max-height: 68vh;
+  overflow: auto;
+  padding: 0.45rem;
+}
+
+.grader-answer-row {
+  display: grid;
+  grid-template-columns: 36px minmax(74px, 1fr) 42px 72px minmax(72px, 0.8fr) minmax(118px, 1.1fr);
+  gap: 0.45rem;
+  align-items: center;
+  border: 1px solid var(--divider);
+  border-left: 3px solid var(--outline);
+  border-radius: 7px;
+  padding: 0.4rem 0.5rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.78rem;
+  text-transform: capitalize;
+}
+
+.grader-answer-row-header {
+  position: sticky;
+  top: -0.45rem;
+  z-index: 2;
+  border-left-color: var(--outline);
+  background: var(--surface-variant);
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+
+.grader-answer-row.status-correct {
+  border-left-color: var(--status-success);
+}
+
+.grader-answer-row.status-wrong {
+  border-left-color: var(--status-error);
+}
+
+.grader-answer-row.status-blank {
+  border-left-color: var(--status-info);
+}
+
+.grader-answer-row.status-ambiguous {
+  border-left-color: var(--status-warning);
+}
+
+.grader-answer-row select {
+  min-width: 0;
+  width: 100%;
+  font-size: 0.76rem;
+  padding: 0.35rem;
+}
+
+@media (max-width: 900px) {
+  .grader-setup-grid,
+  .grader-review-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .grader-score-row {
+    grid-template-columns: repeat(3, minmax(72px, 1fr));
+  }
+
+  .grader-result-card {
+    display: grid;
+  }
+
+  .grader-result-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 560px) {
+  .grader-header {
+    display: grid;
+  }
+
+  .grader-score-row {
+    grid-template-columns: repeat(2, minmax(72px, 1fr));
+  }
+
+  .grader-answer-row {
+    grid-template-columns: 30px 62px 34px 62px 68px minmax(105px, 1fr);
+    min-width: 430px;
+    font-size: 0.7rem;
+  }
+
+  .grader-review-dialog {
+    padding: 0.75rem;
+  }
+}
+
+.imaging-process-backdrop {
+  z-index: 1700;
+}
+
+.imaging-process-dialog {
+  width: min(1180px, 100%);
+  max-height: calc(100dvh - (var(--safe-top) + var(--safe-bottom) + 2rem));
+  overflow: auto;
+  border: 1px solid var(--outline);
+  border-radius: 14px;
+  background: var(--secondary-bg);
+  padding: 1rem;
+}
+
+.imaging-process-header {
+  position: sticky;
+  top: -1rem;
+  z-index: 20;
+  margin: -1rem -1rem 0;
+  padding: 1rem;
+  background: color-mix(in oklab, var(--secondary-bg) 96%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--divider);
+}
+
+.imaging-process-header h2,
+.imaging-process-header p {
+  margin: 0;
+}
+
+.imaging-process-header p {
+  margin-top: 0.25rem;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.imaging-process-loading {
+  min-height: 220px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.imaging-process-blocking {
+  margin: 0.9rem 0 0;
+  border: 1px solid color-mix(in oklab, var(--status-error) 55%, var(--outline));
+  border-radius: 9px;
+  padding: 0.7rem 0.8rem;
+  color: var(--status-error);
+  background: color-mix(in oklab, var(--status-error) 8%, var(--surface));
+}
+
+.imaging-process-timeline {
+  display: grid;
+  gap: 0;
+  padding: 1rem 0 0;
+}
+
+.imaging-process-step {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.imaging-process-rail {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.imaging-process-rail::after {
+  content: "";
+  position: absolute;
+  top: 36px;
+  bottom: 0;
+  width: 2px;
+  background: var(--divider);
+}
+
+.imaging-process-step:last-child .imaging-process-rail::after {
+  display: none;
+}
+
+.imaging-process-rail span {
+  position: relative;
+  z-index: 1;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--brand-primary);
+  border-radius: 999px;
+  color: var(--brand-accent);
+  background: var(--secondary-bg);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.imaging-process-card {
+  min-width: 0;
+  border: 1px solid var(--outline);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 0.8rem;
+  margin-bottom: 1rem;
+}
+
+.imaging-process-card header {
+  margin-bottom: 0.7rem;
+}
+
+.imaging-process-card h3,
+.imaging-process-card p {
+  margin: 0;
+}
+
+.imaging-process-card p {
+  margin-top: 0.25rem;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.imaging-process-image,
+.imaging-final-stage > img {
+  display: block;
+  width: min(100%, 920px);
+  height: auto;
+  margin-inline: auto;
+  border: 1px solid var(--divider);
+  border-radius: 9px;
+  background: #fff;
+}
+
+.imaging-process-visual {
+  position: relative;
+  width: min(100%, 920px);
+  margin-inline: auto;
+}
+
+.imaging-process-visual .imaging-process-image {
+  width: 100%;
+}
+
+.imaging-paper-outline {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.imaging-paper-outline polygon {
+  fill: rgba(0, 199, 123, 0.08);
+  stroke: #00c77b;
+  stroke-width: 0.006;
+  vector-effect: non-scaling-stroke;
+}
+
+.imaging-process-step[data-step="background-normalized"] .imaging-process-image {
+  filter: grayscale(1) contrast(1.08) brightness(1.06);
+}
+
+.imaging-process-step[data-step="clahe"] .imaging-process-image,
+.imaging-process-step[data-step="column-alignment"] .imaging-process-image,
+.imaging-process-step[data-step="final-detection"] .imaging-final-stage > img {
+  filter: grayscale(1) contrast(1.18) brightness(1.04);
+}
+
+.imaging-process-step[data-step="rectified"] .imaging-process-image,
+.imaging-process-step[data-step="background-normalized"] .imaging-process-image,
+.imaging-process-step[data-step="clahe"] .imaging-process-image,
+.imaging-process-step[data-step="column-alignment"] .imaging-process-image,
+.imaging-process-step[data-step="final-detection"] .imaging-final-stage {
+  aspect-ratio: 1683 / 2167;
+}
+
+.imaging-process-step[data-step="rectified"] .imaging-process-image,
+.imaging-process-step[data-step="background-normalized"] .imaging-process-image,
+.imaging-process-step[data-step="clahe"] .imaging-process-image,
+.imaging-process-step[data-step="column-alignment"] .imaging-process-image,
+.imaging-process-step[data-step="final-detection"] .imaging-final-stage > img {
+  height: 100%;
+  object-fit: fill;
+}
+
+.imaging-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.65rem;
+}
+
+.imaging-legend span {
+  border: 1px solid var(--outline);
+  border-radius: 999px;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+}
+
+.imaging-legend .is-selected {
+  border-color: #2563eb;
+  color: #7aa2ff;
+}
+
+.imaging-legend .is-uncertain {
+  border-color: #f5b700;
+  color: var(--status-warning);
+}
+
+.imaging-legend .is-region {
+  border-color: #00c77b;
+  color: var(--status-success);
+}
+
+.imaging-legend .is-override {
+  border-color: #b36bff;
+  color: #cf9cff;
+}
+
+.imaging-final-stage {
+  position: relative;
+  width: min(100%, 920px);
+  margin-inline: auto;
+}
+
+.imaging-final-stage > img {
+  width: 100%;
+}
+
+.imaging-roi-layer,
+.imaging-answer-hotspots {
+  position: absolute;
+  inset: 0;
+}
+
+.imaging-roi-layer {
+  pointer-events: none;
+}
+
+.imaging-roi-box {
+  position: absolute;
+  border: 2px solid rgba(0, 199, 123, 0.8);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
+}
+
+.imaging-answer-checkbox {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid rgba(148, 163, 184, 0.72);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.imaging-answer-checkbox:hover,
+.imaging-answer-checkbox:focus-visible {
+  z-index: 3;
+  border-color: #8fb1ff;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.42);
+  outline: none;
+}
+
+.imaging-answer-checkbox.is-active {
+  z-index: 2;
+  border: 2px solid #2563eb;
+  background: rgba(37, 99, 235, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+}
+
+.imaging-answer-checkbox.is-uncertain {
+  border-color: rgba(245, 183, 0, 0.95);
+  background: rgba(245, 183, 0, 0.08);
+}
+
+.imaging-answer-checkbox.is-overridden {
+  box-shadow:
+    0 0 0 2px rgba(179, 107, 255, 0.9),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+}
+
+.imaging-process-actions {
+  margin-top: 0.7rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+@media (max-width: 640px) {
+  .imaging-process-dialog {
+    padding: 0.75rem;
+  }
+
+  .imaging-process-header {
+    top: -0.75rem;
+    margin: -0.75rem -0.75rem 0;
+    padding: 0.75rem;
+  }
+
+  .imaging-process-step {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+
+  .imaging-process-rail span {
+    width: 26px;
+    height: 26px;
+  }
+
+  .imaging-process-card {
+    padding: 0.6rem;
+  }
+
+  .imaging-process-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }

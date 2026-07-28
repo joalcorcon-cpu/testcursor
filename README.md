@@ -1,6 +1,7 @@
 # OMR Web App (OpenCV.js, Local-Only)
 
-This project is a web-based OMR scanner for student answer sheets.
+This project is a local-only web OMR scanner and photo exam grader for student
+answer sheets.
 
 ## What it does
 
@@ -9,6 +10,8 @@ This project is a web-based OMR scanner for student answer sheets.
 - Stores processing state in the browser session only.
 - Stores scan outputs as **JSON only** containing marks/shade information.
 - Includes a default template matching the provided 100-item answer sheet layout.
+- Provides separate routes for the established scanner (`/`) and the
+  accuracy-first exam grader (`/grader`).
 
 ## JSON output contract
 
@@ -37,6 +40,45 @@ No raw image blobs are persisted by default.
    npm run dev
    ```
 
+3. Open:
+
+   - `http://localhost:3000/` for the existing scanner.
+   - `http://localhost:3000/grader` for photo grading.
+
+## Photo exam grader
+
+The grader supports Math Tests 1–4 with 100-question answer keys hardcoded in
+`lib/exams/examCatalog.ts`. Select the exam first, then add one or more PNG,
+JPEG, or WEBP photos. The exam stays locked until the batch is cleared.
+
+The `grading-v2` worker mode:
+
+- accepts images up to 2200 px on the longest side and measures resolution,
+  sharpness, exposure, and local contrast;
+- searches for a validated outer paper quadrilateral before looking for the
+  printed markers, then retries the full photo when the paper crop is uncertain;
+- requires at least three real corner fiducials and infers no more than one;
+- rectifies photos to the 1683 × 2167 reference-sheet geometry;
+- normalizes broad shadows and lighting before applying low-strength CLAHE;
+- fine-aligns the three answer columns independently;
+- scores inner bubble ellipses against cached blank-sheet baselines; and
+- reports single, blank, or ambiguous answers with per-choice normalized
+  scores and confidence.
+
+Unreliable photos are blocked with a specific retake instruction. Successful
+photos show the detected student ID, score out of 100, quality diagnostics,
+and a 100-question review. Manual A–D or explicit-blank overrides are kept
+separate from the OpenCV result and can be reset to the detected value.
+
+**View Imaging Process** runs the same `grading-v2` localization path on
+demand and presents a nine-stage vertical timeline from the orientation-corrected
+upload through paper/fiducial diagnostics and the interactive final bubble
+overlay. Only answer questions are clickable; ID, exam code, and exam set
+regions remain read-only.
+
+Photos, detections, and overrides remain in browser memory only. There is no
+backend persistence or grader export.
+
 ## Reference images bundled in package
 
 The app ships with bundled references under `public/reference`:
@@ -48,7 +90,9 @@ The app ships with bundled references under `public/reference`:
 - `corners/bl-snapshot.jpg`
 
 On page load, corner snapshots are preloaded from these bundled files and attached to the active template so scans immediately use quadrant `matchTemplate` corner detection.
-If one or two corners are not found, a rectangle-based triangulation fallback estimates missing corners before perspective transform.
+The existing scanner keeps its original fallback behavior. The photo grader is
+stricter: it requires three detected corner squares and may infer only one
+missing corner before perspective correction.
 
 ## Review and correction flow
 
@@ -67,7 +111,8 @@ If one or two corners are not found, a rectangle-based triangulation fallback es
 
 - Current version performs threshold-based bubble scoring and returns JSON marks/shades.
 - Corner-marker perspective correction is enabled using the four corner blocks from the template.
-- Large photos are downscaled (max side ~800px) before processing to keep browser scans responsive.
+- Scanner photos keep the established preprocessing size. Grader photos use up
+  to 2200 px on the longest side for more reliable pencil-mark detection.
 - OpenCV runtime loading now has a timeout guard to avoid indefinite scan hangs.
 - OMR scanning runs in a Web Worker so the UI stays responsive while processing.
 - If worker initialization fails/times out, the scan stops with an explicit error (no blocking main-thread fallback).
