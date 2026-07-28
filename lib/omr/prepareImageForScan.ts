@@ -7,6 +7,10 @@ interface PreparedScanImage {
   height: number;
 }
 
+interface PrepareImageOptions {
+  maxDimension?: number;
+}
+
 const withTimeout = async <T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -67,13 +71,20 @@ const fileToBitmap = async (file: File): Promise<ImageBitmap> => {
   );
 };
 
-export const prepareImageForScan = async (file: File): Promise<PreparedScanImage> => {
+export const prepareImageForScan = async (
+  file: File,
+  options: PrepareImageOptions = {}
+): Promise<PreparedScanImage> => {
   const bitmap = await fileToBitmap(file);
   try {
+    const maxDimension = Math.min(
+      2200,
+      Math.max(800, Math.round(options.maxDimension ?? MAX_NORMALIZED_DIMENSION))
+    );
     const longestSide = Math.max(bitmap.width, bitmap.height);
     const scale =
-      longestSide > MAX_NORMALIZED_DIMENSION
-        ? MAX_NORMALIZED_DIMENSION / longestSide
+      longestSide > maxDimension
+        ? maxDimension / longestSide
         : 1;
     const width = Math.max(1, Math.round(bitmap.width * scale));
     const height = Math.max(1, Math.round(bitmap.height * scale));

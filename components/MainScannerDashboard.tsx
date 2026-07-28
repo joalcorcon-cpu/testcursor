@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AppDashboardShell } from "@/components/AppDashboardShell";
 import { VisualParsingDialog } from "@/components/VisualParsingDialog";
 import {
   buildRoiReadAreaStepsFromRectifiedDataUrl,
@@ -223,9 +224,6 @@ export function MainScannerDashboard() {
   const [activeVisualFileId, setActiveVisualFileId] = useState<string | null>(null);
   const [autoProcessTick, setAutoProcessTick] = useState(0);
   const runBatchProcessRef = useRef<(() => Promise<void>) | null>(null);
-  const [isMobileViewport, setIsMobileViewport] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
   const [selectedIssueFilters, setSelectedIssueFilters] = useState<IssueKey[]>([]);
   const [darknessThreshold, setDarknessThreshold] = useState<number>(
@@ -298,23 +296,6 @@ export function MainScannerDashboard() {
     void warmupOmrWorker().catch(() => {
       // Warmup is best-effort.
     });
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const media = window.matchMedia("(max-width: 960px)");
-    const onChange = () => {
-      const mobile = media.matches;
-      setIsMobileViewport(mobile);
-      if (!mobile) {
-        setIsMobileDrawerOpen(false);
-      }
-    };
-    onChange();
-    media.addEventListener("change", onChange);
-    return () => media.removeEventListener("change", onChange);
   }, []);
 
   useEffect(() => {
@@ -947,20 +928,6 @@ export function MainScannerDashboard() {
     await rebuildVisualStepsForTemplate(nextTemplate, "Refreshing ROI preview...");
   };
 
-  const handleSidebarToggle = () => {
-    if (isMobileViewport) {
-      setIsMobileDrawerOpen((value) => !value);
-      return;
-    }
-    setIsSidebarCollapsed((value) => !value);
-  };
-
-  const closeMobileDrawer = () => {
-    if (isMobileViewport) {
-      setIsMobileDrawerOpen(false);
-    }
-  };
-
   const applyDarknessThreshold = (nextValue: number) => {
     const normalized = clampThreshold(nextValue);
     setDarknessThreshold(normalized);
@@ -1116,47 +1083,7 @@ export function MainScannerDashboard() {
   };
 
   return (
-    <main className="main dashboard-main">
-      <header className="appbar">
-        <div className="appbar-left">
-          <button className="appbar-menu" onClick={handleSidebarToggle} type="button" aria-label="Toggle sidebar">
-            ☰
-          </button>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className="appbar-logo" src="/reference/aerc-logo.png" alt="AERC logo" />
-          <strong>AERC OMR Scanner App</strong>
-        </div>
-        <div className="appbar-right">
-          <button className="appbar-collapse" onClick={handleSidebarToggle} type="button">
-            {isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-          </button>
-        </div>
-      </header>
-      <section
-        className={`dashboard-shell${isSidebarCollapsed ? " sidebar-collapsed" : ""}${
-          isMobileDrawerOpen ? " drawer-open" : ""
-        }`}
-      >
-        <button
-          className={`drawer-backdrop${isMobileDrawerOpen ? " drawer-backdrop-visible" : ""}`}
-          onClick={closeMobileDrawer}
-          aria-label="Close sidebar drawer"
-          type="button"
-        />
-        <aside className="dashboard-sidebar">
-          <div className="sidebar-brand">
-            <strong>AERC</strong>
-            <span>Since 1999</span>
-          </div>
-          <button className="sidebar-close" onClick={closeMobileDrawer} type="button">
-            Close
-          </button>
-          <nav className="sidebar-nav">
-            <button className="sidebar-link sidebar-link-active" onClick={closeMobileDrawer}>Scanner</button>
-          </nav>
-        </aside>
-
-        <section className="dashboard-content">
+    <AppDashboardShell>
           <header className="dashboard-header">
             <div>
               <h1 className="dashboard-title">AERC OMR Scanner App</h1>
@@ -1345,9 +1272,6 @@ export function MainScannerDashboard() {
               </div>
             )}
           </section>
-        </section>
-      </section>
-
       {overrideItem ? (
         <div
           className="override-backdrop"
@@ -1610,6 +1534,6 @@ export function MainScannerDashboard() {
           setActiveVisualFileId(null);
         }}
       />
-    </main>
+    </AppDashboardShell>
   );
 }

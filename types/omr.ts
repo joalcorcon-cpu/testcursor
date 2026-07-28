@@ -1,4 +1,23 @@
 export type ChoiceLabel = "A" | "B" | "C" | "D";
+export type OMRProcessingMode = "legacy" | "grading-v2";
+export type OMRMarkState = "single" | "blank" | "ambiguous";
+
+export interface PhotoQualityReport {
+  processingMode: OMRProcessingMode;
+  sourceWidth: number;
+  sourceHeight: number;
+  sharpnessScore: number;
+  localContrast: number;
+  clippedDarkRatio: number;
+  clippedLightRatio: number;
+  markersDetected: number;
+  markersUsed: number;
+  warpSucceeded: boolean;
+  columnAlignmentConfidence: number[];
+  ambiguousAnswerRatio: number;
+  warnings: string[];
+  blockingReasons: string[];
+}
 
 export interface BubbleRegion {
   x: number;
@@ -76,8 +95,10 @@ export interface OMRAnswerJson {
   q: number;
   selected: ChoiceLabel[];
   shadeScores: ChoiceScores;
+  normalizedScores?: ChoiceScores;
   confidence: number;
   ambiguous: boolean;
+  markState?: OMRMarkState;
 }
 
 export interface OMRDigitJson {
@@ -114,6 +135,7 @@ export interface OMRResultJson {
       bl: number;
     };
     cornerUneven?: boolean;
+    quality?: PhotoQualityReport;
   };
 }
 

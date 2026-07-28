@@ -2,9 +2,15 @@ import cvFactory from "/opencv-worker-runtime.js";
 
 const OPENCV_READY_TIMEOUT_MS = 180000;
 const MAX_RGBA_BYTES = 25 * 1024 * 1024;
+const GRADING_WIDTH = 1683;
+const GRADING_HEIGHT = 2167;
+const GRADING_MARK_THRESHOLD = 0.18;
+const GRADING_AMBIGUITY_GAP = 0.055;
+const CHOICES = ["A", "B", "C", "D"];
 
 let cvReadyPromise = null;
 let lastInitError = "";
+let referenceBaselinePromise = null;
 const currentStageByRequest = new Map();
 const workerLog = (message, details) => {
   if (details === undefined) {
@@ -130,11 +136,37 @@ const pickDigitByDominance = (
   };
 };
 
-const detectCornerPoint = (cv, gray, thresholded, marker, customSearchRegion, otsuThreshold) => {
+const detectCornerPoint = (
+  cv,
+  gray,
+  thresholded,
+  marker,
+  customSearchRegion,
+  otsuThreshold,
+  strictGeometry = false
+) => {
   const searchRegion = customSearchRegion ?? expandMarkerRegion(marker, 4);
   const rect = normalizeRegion(searchRegion, thresholded.cols, thresholded.rows);
   const expectedX = (marker.x + marker.w / 2) * thresholded.cols - rect.x;
   const expectedY = (marker.y + marker.h / 2) * thresholded.rows - rect.y;
+  const expectedWidth = marker.w * thresholded.cols;
+  const expectedHeight = marker.h * thresholded.rows;
+  const contourIsValid = (area, bounds) => {
+    if (!strictGeometry) {
+      return true;
+    }
+    const aspect = bounds.width / Math.max(bounds.height, 1);
+    const extent = area / Math.max(bounds.width * bounds.height, 1);
+    return (
+      aspect >= 0.55 &&
+      aspect <= 1.8 &&
+      extent >= 0.42 &&
+      bounds.width >= expectedWidth * 0.25 &&
+      bounds.width <= expectedWidth * 3.5 &&
+      bounds.height >= expectedHeight * 0.25 &&
+      bounds.height <= expectedHeight * 3.5
+    );
+  };
   if (customSearchRegion) {
     const roiThresholded = thresholded.roi(rect);
     let bestPoint = null;
@@ -164,6 +196,9 @@ const detectCornerPoint = (cv, gray, thresholded, marker, customSearchRegion, ot
                 continue;
               }
               const bounds = cv.boundingRect(contour);
+              if (!contourIsValid(area, bounds)) {
+                continue;
+              }
               const aspect = bounds.width / Math.max(bounds.height, 1);
               const aspectPenalty = Math.abs(1 - aspect);
               const centerX = bounds.x + bounds.width / 2;
@@ -252,6 +287,9 @@ const detectCornerPoint = (cv, gray, thresholded, marker, customSearchRegion, ot
             continue;
           }
           const bounds = cv.boundingRect(contour);
+          if (!contourIsValid(area, bounds)) {
+            continue;
+          }
           const aspect = bounds.width / Math.max(bounds.height, 1);
           const aspectPenalty = Math.abs(1 - aspect);
           const centerX = bounds.x + bounds.width / 2;
@@ -649,7 +687,362 @@ const makeThresholdedSheet = (cv, imageRgbaBuffer, width, height) => {
   return { gray, binary, otsuThreshold };
 };
 
-const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => {
+const makeAdaptiveCornerMap = (cv, gray) => {
+  const adaptive = new cv.Mat();
+  cv.adaptiveThreshold(
+    gray,
+    adaptive,
+    255,
+    cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+    cv.THRESH_BINARY_INV,
+    51,
+    7
+  );
+  return adaptive;
+};
+
+const measureImageQuality = (cv, gray, sourceWidth, sourceHeight) => {
+  const mean = new cv.Mat();
+  const stddev = new cv.Mat();
+  const laplacian = new cv.Mat();
+  const lapMean = new cv.Mat();
+  const lapStddev = new cv.Mat();
+  try {
+    cv.meanStdDev(gray, mean, stddev);
+    cv.Laplacian(gray, laplacian, cv.CV_64F);
+    cv.meanStdDev(laplacian, lapMean, lapStddev);
+    const localContrast = Number(stddev.doubleAt(0, 0)) || 0;
+    const sharpnessStd = Number(lapStddev.doubleAt(0, 0)) || 0;
+    let clippedDark = 0;
+    let clippedLight = 0;
+    const values = gray.data;
+    const sampleStep = Math.max(1, Math.floor(values.length / 250000));
+    let sampled = 0;
+    for (let index = 0; index < values.length; index += sampleStep) {
+      const value = values[index];
+      if (value <= 8) clippedDark += 1;
+      if (value >= 247) clippedLight += 1;
+      sampled += 1;
+    }
+    return {
+      sourceWidth,
+      sourceHeight,
+      sharpnessScore: Math.round(sharpnessStd * sharpnessStd * 100) / 100,
+      localContrast: Math.round(localContrast * 100) / 100,
+      clippedDarkRatio: sampled > 0 ? clippedDark / sampled : 0,
+      clippedLightRatio: sampled > 0 ? clippedLight / sampled : 0
+    };
+  } finally {
+    mean.delete();
+    stddev.delete();
+    laplacian.delete();
+    lapMean.delete();
+    lapStddev.delete();
+  }
+};
+
+const normalizeIllumination = (cv, grayscale) => {
+  const background = new cv.Mat();
+  const divided = new cv.Mat();
+  const sigma = Math.max(18, Math.round(Math.min(grayscale.cols, grayscale.rows) * 0.025));
+  cv.GaussianBlur(
+    grayscale,
+    background,
+    new cv.Size(0, 0),
+    sigma,
+    sigma,
+    cv.BORDER_DEFAULT
+  );
+  cv.divide(grayscale, background, divided, 255, cv.CV_8U);
+  background.delete();
+
+  if (typeof cv.CLAHE === "function") {
+    try {
+      const clahe = new cv.CLAHE(1.4, new cv.Size(8, 8));
+      const enhanced = new cv.Mat();
+      clahe.apply(divided, enhanced);
+      clahe.delete();
+      divided.delete();
+      return enhanced;
+    } catch (error) {
+      workerLog(
+        "CLAHE unavailable; continuing with background-normalized grayscale",
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+  }
+  return divided;
+};
+
+const shiftRegion = (region, dx, dy) => ({
+  ...region,
+  x: region.x + dx,
+  y: region.y + dy
+});
+
+const innerBubbleDarkness = (normalizedGray, region) => {
+  const rect = normalizeRegion(region, normalizedGray.cols, normalizedGray.rows);
+  const roi = normalizedGray.roi(rect);
+  try {
+    const centerX = (rect.width - 1) / 2;
+    const centerY = (rect.height - 1) / 2;
+    const radiusX = Math.max(1, rect.width * 0.34);
+    const radiusY = Math.max(1, rect.height * 0.34);
+    let darkPixels = 0;
+    let darknessSum = 0;
+    let count = 0;
+    for (let y = 0; y < rect.height; y += 1) {
+      for (let x = 0; x < rect.width; x += 1) {
+        const ellipse =
+          ((x - centerX) * (x - centerX)) / (radiusX * radiusX) +
+          ((y - centerY) * (y - centerY)) / (radiusY * radiusY);
+        if (ellipse > 1) continue;
+        const pixel = roi.ucharPtr(y, x)[0];
+        darknessSum += 1 - pixel / 255;
+        if (pixel <= 185) darkPixels += 1;
+        count += 1;
+      }
+    }
+    if (count === 0) return 0;
+    const darkRatio = darkPixels / count;
+    const meanDarkness = darknessSum / count;
+    return clamp(darkRatio * 0.7 + meanDarkness * 0.3, 0, 1);
+  } finally {
+    roi.delete();
+  }
+};
+
+const nearbyBackgroundDarkness = (normalizedGray, region) => {
+  const expanded = {
+    x: region.x - region.w * 0.28,
+    y: region.y - region.h * 0.28,
+    w: region.w * 1.56,
+    h: region.h * 1.56
+  };
+  const rect = normalizeRegion(expanded, normalizedGray.cols, normalizedGray.rows);
+  const roi = normalizedGray.roi(rect);
+  try {
+    const centerX = (rect.width - 1) / 2;
+    const centerY = (rect.height - 1) / 2;
+    const excludeX = Math.max(1, rect.width * 0.34);
+    const excludeY = Math.max(1, rect.height * 0.34);
+    let darknessSum = 0;
+    let count = 0;
+    for (let y = 0; y < rect.height; y += 1) {
+      for (let x = 0; x < rect.width; x += 1) {
+        const normalizedDistance =
+          ((x - centerX) * (x - centerX)) / (excludeX * excludeX) +
+          ((y - centerY) * (y - centerY)) / (excludeY * excludeY);
+        if (normalizedDistance <= 1) continue;
+        darknessSum += 1 - roi.ucharPtr(y, x)[0] / 255;
+        count += 1;
+      }
+    }
+    return count > 0 ? darknessSum / count : 0;
+  } finally {
+    roi.delete();
+  }
+};
+
+const bubbleSignal = (normalizedGray, region) =>
+  clamp(
+    innerBubbleDarkness(normalizedGray, region) -
+      nearbyBackgroundDarkness(normalizedGray, region) * 0.35,
+    0,
+    1
+  );
+
+const normalizeObservedScores = (observed, baseline = null) => {
+  const deltas = Object.fromEntries(
+    CHOICES.map((choice) => [
+      choice,
+      Math.max(0, observed[choice] - Number(baseline?.[choice] ?? 0))
+    ])
+  );
+  const floor = Math.min(...CHOICES.map((choice) => deltas[choice]));
+  return Object.fromEntries(
+    CHOICES.map((choice) => [
+      choice,
+      clamp((deltas[choice] - floor) / 0.34, 0, 1)
+    ])
+  );
+};
+
+const pickGradingSelection = (scores) => {
+  const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+  const top = ranked[0];
+  const second = ranked[1];
+  if (!top || top[1] < GRADING_MARK_THRESHOLD) {
+    return {
+      selected: [],
+      confidence: top?.[1] ?? 0,
+      ambiguous: false,
+      markState: "blank"
+    };
+  }
+  const candidates = ranked.filter(
+    (entry) =>
+      entry[1] >= GRADING_MARK_THRESHOLD &&
+      top[1] - entry[1] <= GRADING_AMBIGUITY_GAP
+  );
+  if (candidates.length !== 1) {
+    return {
+      selected: [],
+      confidence: clamp(top[1] - (second?.[1] ?? 0), 0, 1),
+      ambiguous: true,
+      markState: "ambiguous"
+    };
+  }
+  return {
+    selected: [top[0]],
+    confidence: clamp(top[1] - (second?.[1] ?? 0), 0, 1),
+    ambiguous: false,
+    markState: "single"
+  };
+};
+
+const scoreChoiceGroupV2 = (normalizedGray, choiceRegions, baseline, offset) => {
+  const observed = Object.fromEntries(
+    CHOICES.map((choice) => [
+      choice,
+        bubbleSignal(
+          normalizedGray,
+          shiftRegion(choiceRegions[choice], offset.dx, offset.dy)
+      )
+    ])
+  );
+  return {
+    observed,
+    normalized: normalizeObservedScores(observed, baseline)
+  };
+};
+
+const scoreAnswerV2 = (normalizedGray, answerItem, baseline, offset) => {
+  const scores = scoreChoiceGroupV2(
+    normalizedGray,
+    answerItem.choices,
+    baseline,
+    offset
+  );
+  const decision = pickGradingSelection(scores.normalized);
+  return {
+    q: answerItem.question,
+    selected: decision.selected,
+    shadeScores: scores.observed,
+    normalizedScores: scores.normalized,
+    confidence: decision.confidence,
+    ambiguous: decision.ambiguous,
+    markState: decision.markState
+  };
+};
+
+const scoreDigitColumnsV2 = (normalizedGray, columns) => {
+  const shadeScores = columns.map((column) => {
+    const observed = column.map((bubble) => bubbleSignal(normalizedGray, bubble));
+    const floor = Math.min(...observed);
+    return observed.map((score) => clamp((score - floor) / 0.34, 0, 1));
+  });
+  const detected = shadeScores.map(
+    (scores) =>
+      pickDigitByDominance(scores, {
+        minTopScore: 0.14,
+        minGapToSecond: 0.045,
+        minStdMultiplier: 1
+      }).detected
+  );
+  return { detected, shadeScores };
+};
+
+const findColumnAlignment = (normalizedGray, answerItems) => {
+  const offsets = [-8, -4, 0, 4, 8];
+  const sampled = answerItems.filter((_, index) => index % 3 === 0);
+  const candidates = [];
+  for (const dyPixels of offsets) {
+    for (const dxPixels of offsets) {
+      const dx = dxPixels / normalizedGray.cols;
+      const dy = dyPixels / normalizedGray.rows;
+      let score = 0;
+      let count = 0;
+      for (const item of sampled) {
+        for (const choice of CHOICES) {
+          score += innerBubbleDarkness(
+            normalizedGray,
+            shiftRegion(item.choices[choice], dx, dy)
+          );
+          count += 1;
+        }
+      }
+      candidates.push({ dx, dy, score: count > 0 ? score / count : 0 });
+    }
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  const best = candidates[0] ?? { dx: 0, dy: 0, score: 0 };
+  return {
+    dx: best.dx,
+    dy: best.dy,
+    confidence: clamp((best.score - 0.035) / 0.16, 0, 1)
+  };
+};
+
+const imageBitmapToGray = (cv, bitmap, width, height) => {
+  const canvas = new OffscreenCanvas(width, height);
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Unable to prepare bundled answer-sheet reference.");
+  }
+  context.drawImage(bitmap, 0, 0, width, height);
+  const imageData = context.getImageData(0, 0, width, height);
+  const rgba = cv.matFromImageData(imageData);
+  const gray = new cv.Mat();
+  cv.cvtColor(rgba, gray, cv.COLOR_RGBA2GRAY);
+  rgba.delete();
+  return gray;
+};
+
+const loadReferenceBaselines = async (cv, template) => {
+  if (referenceBaselinePromise) {
+    return referenceBaselinePromise;
+  }
+  referenceBaselinePromise = (async () => {
+    const response = await fetch("/reference/answer-sheet-reference.jpg");
+    if (!response.ok) {
+      throw new Error(`Reference image request failed (${response.status}).`);
+    }
+    const bitmap = await createImageBitmap(await response.blob());
+    const gray = imageBitmapToGray(cv, bitmap, GRADING_WIDTH, GRADING_HEIGHT);
+    bitmap.close();
+    const normalized = normalizeIllumination(cv, gray);
+    gray.delete();
+    try {
+      return Object.fromEntries(
+        template.answers.map((answerItem) => [
+          answerItem.question,
+          Object.fromEntries(
+            CHOICES.map((choice) => [
+              choice,
+              bubbleSignal(normalized, answerItem.choices[choice])
+            ])
+          )
+        ])
+      );
+    } finally {
+      normalized.delete();
+    }
+  })().catch((error) => {
+    referenceBaselinePromise = null;
+    throw error;
+  });
+  return referenceBaselinePromise;
+};
+
+const resolveSheetCorners = (
+  cv,
+  gray,
+  thresholded,
+  template,
+  otsuThreshold,
+  strictFiducials = false
+) => {
   const angleToleranceDegrees = readCornerAngleToleranceDegrees(template);
   const orderedMarkers = [
     template.cornerMarkers.find((marker) => marker.id === "tl"),
@@ -712,7 +1105,8 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
         thresholded,
         marker,
         customSearchRegion,
-        otsuThreshold
+        otsuThreshold,
+        strictFiducials
       );
       return {
         detection: fallbackDetection,
@@ -742,7 +1136,8 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
         thresholded,
         marker,
         customSearchRegion,
-        otsuThreshold
+        otsuThreshold,
+        strictFiducials
       );
       return {
         detection,
@@ -788,7 +1183,8 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
       thresholded,
       marker,
       undefined,
-      otsuThreshold
+      otsuThreshold,
+      strictFiducials
     );
     return {
       detection,
@@ -828,13 +1224,23 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
   }
 
   const initialFoundCount = Object.keys(pointsById).length;
+  if (strictFiducials && initialFoundCount < 3) {
+    return {
+      valid: false,
+      corners: [],
+      debug: cornerDetections.map((entry) => entry.debug),
+      foundByDetectionCount: initialFoundCount,
+      foundAfterTriangulationCount: initialFoundCount,
+      triangulatedCount: 0
+    };
+  }
   if (initialFoundCount < 4) {
     const inferredFromThree = inferMissingCornerByParallelogram(pointsById);
     if (inferredFromThree) {
       pointsById[inferredFromThree.id] = inferredFromThree.point;
     }
   }
-  if (Object.keys(pointsById).length < 4) {
+  if (!strictFiducials && Object.keys(pointsById).length < 4) {
     const inferredBySimilarity = inferMissingCornersBySimilarity(pointsById, canonicalById);
     if (inferredBySimilarity) {
       Object.assign(pointsById, inferredBySimilarity);
@@ -967,11 +1373,26 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
   };
 };
 
-const rectifySheet = (cv, gray, thresholded, template, otsuThreshold) => {
-  const cornerResolution = resolveSheetCorners(cv, gray, thresholded, template, otsuThreshold);
+const rectifySheet = (
+  cv,
+  gray,
+  thresholded,
+  template,
+  otsuThreshold,
+  outputSize = null
+) => {
+  const cornerResolution = resolveSheetCorners(
+    cv,
+    gray,
+    thresholded,
+    template,
+    otsuThreshold,
+    Boolean(outputSize?.strictFiducials)
+  );
   if (!cornerResolution.valid) {
     return {
       thresholded,
+      grayscale: gray,
       warped: false,
       cornerDebug: cornerResolution.debug,
       cornerFoundCount: cornerResolution.foundByDetectionCount,
@@ -991,12 +1412,12 @@ const rectifySheet = (cv, gray, thresholded, template, otsuThreshold) => {
   const dstPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
     0,
     0,
-    thresholded.cols - 1,
+    (outputSize?.width ?? thresholded.cols) - 1,
     0,
-    thresholded.cols - 1,
-    thresholded.rows - 1,
+    (outputSize?.width ?? thresholded.cols) - 1,
+    (outputSize?.height ?? thresholded.rows) - 1,
     0,
-    thresholded.rows - 1
+    (outputSize?.height ?? thresholded.rows) - 1
   ]);
 
   const transform = cv.getPerspectiveTransform(srcPoints, dstPoints);
@@ -1005,7 +1426,10 @@ const rectifySheet = (cv, gray, thresholded, template, otsuThreshold) => {
     gray,
     warpedGray,
     transform,
-    new cv.Size(thresholded.cols, thresholded.rows),
+    new cv.Size(
+      outputSize?.width ?? thresholded.cols,
+      outputSize?.height ?? thresholded.rows
+    ),
     cv.INTER_LINEAR,
     cv.BORDER_CONSTANT
   );
@@ -1016,11 +1440,11 @@ const rectifySheet = (cv, gray, thresholded, template, otsuThreshold) => {
   srcPoints.delete();
   dstPoints.delete();
   transform.delete();
-  warpedGray.delete();
   thresholded.delete();
 
   return {
     thresholded: warpedBinary,
+    grayscale: warpedGray,
     warped: true,
     cornerDebug: cornerResolution.debug,
     cornerFoundCount: cornerResolution.foundByDetectionCount,
@@ -1045,7 +1469,14 @@ const buildRectifiedPreview = async ({ requestId, imageRgbaBuffer, width, height
   currentStageByRequest.set(requestId, "Preparing rectified preview...");
   const cv = await loadOpenCv();
 
-  const { gray, binary, otsuThreshold } = makeThresholdedSheet(cv, imageRgbaBuffer, width, height);
+  const preprocessed = makeThresholdedSheet(cv, imageRgbaBuffer, width, height);
+  const { gray, otsuThreshold } = preprocessed;
+  let binary = preprocessed.binary;
+  if (processingMode === "grading-v2") {
+    const adaptiveCornerMap = makeAdaptiveCornerMap(cv, gray);
+    binary.delete();
+    binary = adaptiveCornerMap;
+  }
   try {
     const cornerResolution = resolveSheetCorners(cv, gray, binary, template, otsuThreshold);
     if (!cornerResolution.valid) {
@@ -1127,7 +1558,14 @@ const postProgress = (requestId, stage) => {
   self.postMessage({ type: "progress", requestId, stage });
 };
 
-const runScan = async ({ requestId, imageRgbaBuffer, width, height, template }) => {
+const runScan = async ({
+  requestId,
+  imageRgbaBuffer,
+  width,
+  height,
+  template,
+  processingMode = "legacy"
+}) => {
   if (!(imageRgbaBuffer instanceof ArrayBuffer)) {
     throw new Error("Invalid scan payload.");
   }
@@ -1144,18 +1582,230 @@ const runScan = async ({ requestId, imageRgbaBuffer, width, height, template }) 
 
   postProgress(requestId, "Preprocessing image...");
   const { gray, binary, otsuThreshold } = makeThresholdedSheet(cv, imageRgbaBuffer, width, height);
+  const sourceQuality = measureImageQuality(cv, gray, width, height);
 
   postProgress(requestId, "Aligning sheet...");
-  const rectified = rectifySheet(cv, gray, binary, template, otsuThreshold);
-  gray.delete();
+  const rectified = rectifySheet(
+    cv,
+    gray,
+    binary,
+    template,
+    otsuThreshold,
+    processingMode === "grading-v2"
+      ? { width: GRADING_WIDTH, height: GRADING_HEIGHT, strictFiducials: true }
+      : null
+  );
+  if (rectified.grayscale !== gray) {
+    gray.delete();
+  }
 
   const thresholded = rectified.thresholded;
+  const grayscale = rectified.grayscale;
   try {
     const darknessThreshold = clamp(
       Number(template?.scoring?.darknessThreshold ?? 0.28),
       0,
       1
     );
+
+    if (processingMode === "grading-v2") {
+      const warnings = [];
+      const blockingReasons = [];
+      const longestSide = Math.max(width, height);
+      const shortestSide = Math.min(width, height);
+      if (longestSide < 1100 || shortestSide < 700) {
+        blockingReasons.push(
+          "Photo resolution is too low. Retake closer so the sheet fills the frame."
+        );
+      }
+      if (sourceQuality.sharpnessScore < 20) {
+        blockingReasons.push(
+          "The photo is too blurry to grade reliably. Hold the camera steady and retake."
+        );
+      } else if (sourceQuality.sharpnessScore < 45) {
+        warnings.push("Photo is slightly soft; review low-confidence answers.");
+      }
+      if (sourceQuality.localContrast < 12) {
+        blockingReasons.push(
+          "The photo has insufficient contrast. Retake it in brighter, even light."
+        );
+      }
+      if (sourceQuality.clippedLightRatio > 0.65) {
+        blockingReasons.push(
+          "Too much of the sheet is overexposed. Move away from glare and retake."
+        );
+      } else if (sourceQuality.clippedLightRatio > 0.35) {
+        warnings.push("Bright glare was detected on part of the sheet.");
+      }
+      if ((rectified.cornerFoundCount ?? 0) < 3) {
+        blockingReasons.push(
+          "At least three printed corner squares must be visible. Reframe and retake the photo."
+        );
+      }
+      if (!rectified.warped) {
+        blockingReasons.push(
+          "The sheet could not be perspective-corrected from the detected corner squares."
+        );
+      }
+      if (rectified.cornerUneven) {
+        warnings.push("Corner geometry required correction; verify the transformed preview.");
+      }
+
+      postProgress(requestId, "Removing shadows and normalizing lighting...");
+      const normalizedGray = normalizeIllumination(cv, grayscale);
+      try {
+        postProgress(requestId, "Fine-aligning answer columns...");
+        const answerGroups = [
+          template.answers.filter((answer) => answer.question <= 35),
+          template.answers.filter(
+            (answer) => answer.question >= 36 && answer.question <= 70
+          ),
+          template.answers.filter((answer) => answer.question >= 71)
+        ];
+        const alignments = answerGroups.map((group) =>
+          findColumnAlignment(normalizedGray, group)
+        );
+        const alignmentConfidence = alignments.map(
+          (alignment) => Math.round(alignment.confidence * 1000) / 1000
+        );
+        if (alignmentConfidence.some((confidence) => confidence < 0.12)) {
+          blockingReasons.push(
+            "One or more answer columns could not be aligned to the printed bubble grid."
+          );
+        } else if (alignmentConfidence.some((confidence) => confidence < 0.25)) {
+          warnings.push("One answer column has low alignment confidence.");
+        }
+        const allAnswerRegionsInsideSheet = template.answers.every((answerItem) => {
+          const alignment =
+            answerItem.question <= 35
+              ? alignments[0]
+              : answerItem.question <= 70
+                ? alignments[1]
+                : alignments[2];
+          return CHOICES.every((choice) => {
+            const region = shiftRegion(answerItem.choices[choice], alignment.dx, alignment.dy);
+            return (
+              region.x >= 0 &&
+              region.y >= 0 &&
+              region.x + region.w <= 1 &&
+              region.y + region.h <= 1
+            );
+          });
+        });
+        if (!allAnswerRegionsInsideSheet) {
+          blockingReasons.push(
+            "The corrected sheet does not contain every answer region. Reframe the full page and retake."
+          );
+        }
+
+        let baselines = null;
+        try {
+          postProgress(requestId, "Loading blank-sheet bubble baselines...");
+          baselines = await loadReferenceBaselines(cv, template);
+        } catch (error) {
+          warnings.push(
+            `Blank-sheet baseline unavailable: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        }
+
+        postProgress(requestId, "Scoring ID and exam fields...");
+        const studentId = scoreDigitColumnsV2(normalizedGray, template.studentId.columns);
+        const examCode = scoreDigitColumnsV2(normalizedGray, template.examCode.columns);
+        const examSetScores = scoreChoiceGroupV2(
+          normalizedGray,
+          template.examSet.choices,
+          null,
+          { dx: 0, dy: 0 }
+        );
+        const examSetDecision = pickGradingSelection(examSetScores.normalized);
+
+        const answers = [];
+        postProgress(requestId, "Scoring normalized answers...");
+        for (let index = 0; index < template.answers.length; index += 1) {
+          const answerItem = template.answers[index];
+          const alignment =
+            answerItem.question <= 35
+              ? alignments[0]
+              : answerItem.question <= 70
+                ? alignments[1]
+                : alignments[2];
+          answers.push(
+            scoreAnswerV2(
+              normalizedGray,
+              answerItem,
+              baselines?.[answerItem.question] ?? null,
+              alignment
+            )
+          );
+          if ((index + 1) % 20 === 0) {
+            postProgress(
+              requestId,
+              `Scoring normalized answers (${index + 1}/${template.answers.length})...`
+            );
+          }
+        }
+
+        const ambiguousAnswerRatio =
+          answers.length > 0
+            ? answers.filter((answer) => answer.markState === "ambiguous").length /
+              answers.length
+            : 1;
+        if (ambiguousAnswerRatio > 0.25) {
+          blockingReasons.push(
+            "Too many answers are ambiguous, which usually indicates poor alignment or lighting."
+          );
+        } else if (ambiguousAnswerRatio > 0.1) {
+          warnings.push("Several answers are ambiguous and should be reviewed.");
+        }
+
+        const quality = {
+          processingMode,
+          ...sourceQuality,
+          markersDetected: rectified.cornerFoundCount ?? 0,
+          markersUsed: rectified.cornerUsedCount ?? 0,
+          warpSucceeded: rectified.warped,
+          columnAlignmentConfidence: alignmentConfidence,
+          ambiguousAnswerRatio,
+          warnings,
+          blockingReasons
+        };
+
+        if (blockingReasons.length > 0) {
+          throw new Error(`Photo quality check failed: ${blockingReasons.join(" ")}`);
+        }
+
+        return {
+          templateId: template.id,
+          student: {
+            studentId,
+            examCode,
+            examSet: {
+              selected: examSetDecision.selected,
+              shadeScores: examSetScores.observed,
+              confidence: examSetDecision.confidence,
+              ambiguous: examSetDecision.ambiguous
+            }
+          },
+          answers,
+          pipeline: {
+            warped: rectified.warped,
+            width: thresholded.cols,
+            height: thresholded.rows,
+            cornerFoundCount: rectified.cornerFoundCount,
+            cornerUsedCount: rectified.cornerUsedCount,
+            cornerTriangulatedCount: rectified.cornerTriangulatedCount,
+            cornerAngles: rectified.cornerAngles,
+            cornerUneven: rectified.cornerUneven,
+            quality
+          }
+        };
+      } finally {
+        normalizedGray.delete();
+      }
+    }
+
     postProgress(requestId, "Scoring ID and exam fields...");
     const studentId = scoreDigitColumns(cv, thresholded, template.studentId.columns, darknessThreshold);
     const examCode = scoreDigitColumns(cv, thresholded, template.examCode.columns, darknessThreshold);
@@ -1197,6 +1847,7 @@ const runScan = async ({ requestId, imageRgbaBuffer, width, height, template }) 
     };
   } finally {
     thresholded.delete();
+    grayscale.delete();
   }
 };
 

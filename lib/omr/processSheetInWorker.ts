@@ -1,4 +1,12 @@
-import type { OMRResultJson, OMRTemplate } from "@/types/omr";
+import type {
+  OMRProcessingMode,
+  OMRResultJson,
+  OMRTemplate
+} from "@/types/omr";
+
+export interface OMRProcessingOptions {
+  mode?: OMRProcessingMode;
+}
 
 export interface RectifiedPreview {
   rgbaBuffer: ArrayBuffer;
@@ -233,7 +241,8 @@ export const processSheetFileInWorker = async (
   height: number,
   template: OMRTemplate,
   onProgress?: (stage: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options: OMRProcessingOptions = {}
 ): Promise<OMRResultJson> => {
   if (typeof window === "undefined" || typeof Worker === "undefined") {
     throw new Error("Web Worker scanning is not supported in this environment.");
@@ -300,7 +309,8 @@ export const processSheetFileInWorker = async (
         imageRgbaBuffer,
         width,
         height,
-        template
+        template,
+        processingMode: options.mode ?? "legacy"
       },
       [imageRgbaBuffer]
     );
