@@ -2,18 +2,30 @@
 
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { AppDashboardShell } from "@/components/AppDashboardShell";
+import { ImagingProcessDialog } from "@/components/ImagingProcessDialog";
 import { examCatalog, getExamById } from "@/lib/exams/examCatalog";
+import {
+  applyAnswerBubbleClick,
+  resetAnswerOverrides
+} from "@/lib/grading/answerOverrides";
 import { gradeSheet } from "@/lib/grading/gradeSheet";
 import { buildVisualParsingSteps } from "@/lib/omr/buildVisualParsingSteps";
 import { prepareImageForScan } from "@/lib/omr/prepareImageForScan";
 import {
+  buildGradingVisualizationInWorker,
   processSheetFileInWorker,
   warmupOmrWorker
 } from "@/lib/omr/processSheetInWorker";
 import { defaultSheetTemplate } from "@/lib/templates/defaultSheetTemplate";
 import { loadBundledCornerSnapshots } from "@/lib/templates/loadBundledCornerSnapshots";
 import type { AnswerOverrideMap, SheetGrade } from "@/types/grading";
-import type { ChoiceLabel, OMRResultJson, OMRTemplate } from "@/types/omr";
+import type {
+  ChoiceLabel,
+  ImagingProcessStep,
+  OMRResultJson,
+  OMRTemplate,
+  PaperDetectionDiagnostics
+} from "@/types/omr";
 
 type QueueStatus = "queued" | "processing" | "done" | "error";
 
@@ -32,6 +44,17 @@ interface ReviewState {
   loading: boolean;
   error: string | null;
   overlayUrl: string | null;
+}
+
+interface ImagingState {
+  fileId: string | null;
+  loading: boolean;
+  error: string | null;
+  steps: ImagingProcessStep[];
+  blockingReason?: string;
+  paperDetection?: PaperDetectionDiagnostics;
+  columnAlignmentOffsets: Array<{ dx: number; dy: number }>;
+  stage?: string;
 }
 
 const choiceOptions: Array<{ value: string; label: string }> = [
@@ -67,6 +90,14 @@ const scanErrorMessage = (value: unknown) => {
     .replace(/\s+\(Error: [\s\S]*$/, "");
 };
 
+const releaseImagingSteps = (steps: ImagingProcessStep[]) => {
+  for (const step of steps) {
+    if (step.imageUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(step.imageUrl);
+    }
+  }
+};
+
 export function ExamGraderDashboard() {
   const templateRef = useRef<OMRTemplate>(
     JSON.parse(JSON.stringify(defaultSheetTemplate)) as OMRTemplate
@@ -74,6 +105,8 @@ export function ExamGraderDashboard() {
   const queueRef = useRef<GraderQueueItem[]>([]);
   const runBatchRef = useRef<(() => Promise<void>) | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const imagingRequestRef = useRef(0);
+  const imagingStepsRef = useRef<ImagingProcessStep[]>([]);
 
   const [selectedExamId, setSelectedExamId] = useState("");
   const [templateReady, setTemplateReady] = useState(false);
@@ -90,10 +123,28 @@ export function ExamGraderDashboard() {
     error: null,
     overlayUrl: null
   });
+  const [imaging, setImaging] = useState<ImagingState>({
+    fileId: null,
+    loading: false,
+    error: null,
+    steps: [],
+    columnAlignmentOffsets: []
+  });
 
   useEffect(() => {
     queueRef.current = queue;
   }, [queue]);
+
+  useEffect(() => {
+    imagingStepsRef.current = imaging.steps;
+  }, [imaging.steps]);
+
+  useEffect(
+    () => () => {
+      releaseImagingSteps(imagingStepsRef.current);
+    },
+    []
+  );
 
   useEffect(() => {
     void warmupOmrWorker().catch(() => {
@@ -253,11 +304,20 @@ export function ExamGraderDashboard() {
 
   const clearBatch = () => {
     abortController?.abort();
+    imagingRequestRef.current += 1;
+    releaseImagingSteps(imaging.steps);
     setQueue([]);
     queueRef.current = [];
     setProgress(null);
     setError(null);
     setReview({ fileId: null, loading: false, error: null, overlayUrl: null });
+    setImaging({
+      fileId: null,
+      loading: false,
+      error: null,
+      steps: [],
+      columnAlignmentOffsets: []
+    });
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -274,6 +334,17 @@ export function ExamGraderDashboard() {
     });
     if (review.fileId === id) {
       setReview({ fileId: null, loading: false, error: null, overlayUrl: null });
+    }
+    if (imaging.fileId === id) {
+      imagingRequestRef.current += 1;
+      releaseImagingSteps(imaging.steps);
+      setImaging({
+        fileId: null,
+        loading: false,
+        error: null,
+        steps: [],
+        columnAlignmentOffsets: []
+      });
     }
   };
 
@@ -324,6 +395,94 @@ export function ExamGraderDashboard() {
     }
   };
 
+  const openImagingProcess = async (fileId: string) => {
+    const item = queueRef.current.find((entry) => entry.id === fileId);
+    if (!item) return;
+    releaseImagingSteps(imaging.steps);
+    const requestId = imagingRequestRef.current + 1;
+    imagingRequestRef.current = requestId;
+    setImaging({
+      fileId,
+      loading: true,
+      error: null,
+      steps: [],
+      columnAlignmentOffsets: []
+    });
+    try {
+      const prepared = await prepareImageForScan(item.file, { maxDimension: 2200 });
+      const visualization = await buildGradingVisualizationInWorker(
+        prepared.rgbaBuffer.slice(0),
+        prepared.width,
+        prepared.height,
+        templateRef.current,
+        (stage) =>
+          setImaging((current) =>
+            current.fileId === fileId ? { ...current, stage } : current
+          )
+      );
+      const steps: ImagingProcessStep[] = visualization.steps.map((step) => ({
+        id: step.id,
+        title: step.title,
+        description: step.description,
+        imageUrl: URL.createObjectURL(item.file)
+      }));
+      if (imagingRequestRef.current !== requestId) {
+        releaseImagingSteps(steps);
+        return;
+      }
+      setImaging({
+        fileId,
+        loading: false,
+        error: null,
+        steps,
+        blockingReason: visualization.blockingReason,
+        paperDetection: visualization.paperDetection,
+        columnAlignmentOffsets: visualization.columnAlignmentOffsets
+      });
+    } catch (visualizationError) {
+      if (imagingRequestRef.current !== requestId) return;
+      setImaging({
+        fileId,
+        loading: false,
+        error: scanErrorMessage(visualizationError),
+        steps: [],
+        columnAlignmentOffsets: []
+      });
+    }
+  };
+
+  const closeImagingProcess = () => {
+    imagingRequestRef.current += 1;
+    releaseImagingSteps(imaging.steps);
+    setImaging({
+      fileId: null,
+      loading: false,
+      error: null,
+      steps: [],
+      columnAlignmentOffsets: []
+    });
+  };
+
+  const applyImagingAnswerOverride = (question: number, choice: ChoiceLabel) => {
+    if (!imaging.fileId) return;
+    updateQueueItem(imaging.fileId, (item) => {
+      const answer = item.result?.answers.find((entry) => entry.q === question);
+      if (!answer) return item;
+      return {
+        ...item,
+        overrides: applyAnswerBubbleClick(answer, item.overrides, choice)
+      };
+    });
+  };
+
+  const resetImagingOverrides = () => {
+    if (!imaging.fileId) return;
+    updateQueueItem(imaging.fileId, (item) => ({
+      ...item,
+      overrides: resetAnswerOverrides()
+    }));
+  };
+
   const setAnswerOverride = (fileId: string, question: number, value: string) => {
     updateQueueItem(fileId, (item) => {
       const overrides = { ...item.overrides };
@@ -340,6 +499,9 @@ export function ExamGraderDashboard() {
     ? queue.find((item) => item.id === review.fileId) ?? null
     : null;
   const reviewGrade = review.fileId ? gradesById.get(review.fileId) ?? null : null;
+  const imagingItem = imaging.fileId
+    ? queue.find((item) => item.id === imaging.fileId) ?? null
+    : null;
 
   const onDrop = (event: DragEvent<HTMLElement>) => {
     event.preventDefault();
@@ -512,6 +674,14 @@ export function ExamGraderDashboard() {
                             <span>
                               Perspective {quality.warpSucceeded ? "corrected" : "failed"}
                             </span>
+                            <span>
+                              Paper{" "}
+                              {quality.paperDetection.detected
+                                ? `${Math.round(
+                                    quality.paperDetection.confidence * 100
+                                  )}%`
+                                : "fallback"}
+                            </span>
                             <span>Sharpness {Math.round(quality.sharpnessScore)}</span>
                             <span>Contrast {Math.round(quality.localContrast)}</span>
                             <span>
@@ -535,6 +705,14 @@ export function ExamGraderDashboard() {
                     ) : null}
                   </div>
                   <div className="grader-result-actions">
+                    {item.status === "done" || item.status === "error" ? (
+                      <button
+                        disabled={loading}
+                        onClick={() => void openImagingProcess(item.id)}
+                      >
+                        View Imaging Process
+                      </button>
+                    ) : null}
                     {item.status === "done" ? (
                       <button onClick={() => void openReview(item.id)}>Review Score</button>
                     ) : null}
@@ -665,6 +843,24 @@ export function ExamGraderDashboard() {
             </div>
           </section>
         </div>
+      ) : null}
+      {imaging.fileId ? (
+        <ImagingProcessDialog
+          fileName={imagingItem?.file.name ?? "Answer sheet"}
+          steps={imaging.steps}
+          loading={imaging.loading}
+          loadingStage={imaging.stage}
+          error={imaging.error}
+          blockingReason={imaging.blockingReason}
+          result={imagingItem?.result ?? null}
+          overrides={imagingItem?.overrides ?? {}}
+          template={templateRef.current}
+          paperDetection={imaging.paperDetection}
+          columnAlignmentOffsets={imaging.columnAlignmentOffsets}
+          onAnswerClick={applyImagingAnswerOverride}
+          onResetOverrides={resetImagingOverrides}
+          onClose={closeImagingProcess}
+        />
       ) : null}
     </AppDashboardShell>
   );

@@ -55,6 +55,8 @@ The `grading-v2` worker mode:
 
 - accepts images up to 2200 px on the longest side and measures resolution,
   sharpness, exposure, and local contrast;
+- searches for a validated outer paper quadrilateral before looking for the
+  printed markers, then retries the full photo when the paper crop is uncertain;
 - requires at least three real corner fiducials and infers no more than one;
 - rectifies photos to the 1683 × 2167 reference-sheet geometry;
 - normalizes broad shadows and lighting before applying low-strength CLAHE;
@@ -67,6 +69,12 @@ Unreliable photos are blocked with a specific retake instruction. Successful
 photos show the detected student ID, score out of 100, quality diagnostics,
 and a 100-question review. Manual A–D or explicit-blank overrides are kept
 separate from the OpenCV result and can be reset to the detected value.
+
+**View Imaging Process** runs the same `grading-v2` localization path on
+demand and presents a nine-stage vertical timeline from the orientation-corrected
+upload through paper/fiducial diagnostics and the interactive final bubble
+overlay. Only answer questions are clickable; ID, exam code, and exam set
+regions remain read-only.
 
 Photos, detections, and overrides remain in browser memory only. There is no
 backend persistence or grader export.

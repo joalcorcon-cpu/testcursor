@@ -1,6 +1,20 @@
 export type ChoiceLabel = "A" | "B" | "C" | "D";
 export type OMRProcessingMode = "legacy" | "grading-v2";
 export type OMRMarkState = "single" | "blank" | "ambiguous";
+export type PaperLocalizationStrategy = "paper-crop" | "full-image-fallback";
+
+export interface ImagePoint {
+  x: number;
+  y: number;
+}
+
+export interface PaperDetectionDiagnostics {
+  detected: boolean;
+  confidence: number;
+  polygon: ImagePoint[] | null;
+  strategy: PaperLocalizationStrategy;
+  fallbackReason?: string;
+}
 
 export interface PhotoQualityReport {
   processingMode: OMRProcessingMode;
@@ -13,10 +27,43 @@ export interface PhotoQualityReport {
   markersDetected: number;
   markersUsed: number;
   warpSucceeded: boolean;
+  paperDetection: PaperDetectionDiagnostics;
   columnAlignmentConfidence: number[];
+  columnAlignmentOffsets: Array<{ dx: number; dy: number }>;
   ambiguousAnswerRatio: number;
   warnings: string[];
   blockingReasons: string[];
+}
+
+export interface ImagingProcessStep {
+  id:
+    | "original"
+    | "paper"
+    | "paper-crop"
+    | "fiducials"
+    | "rectified"
+    | "background-normalized"
+    | "clahe"
+    | "column-alignment"
+    | "final-detection";
+  title: string;
+  description: string;
+  imageUrl: string;
+}
+
+export interface ImagingProcessStepPayload
+  extends Omit<ImagingProcessStep, "imageUrl"> {
+  rgbaBuffer?: ArrayBuffer;
+  width: number;
+  height: number;
+}
+
+export interface GradingVisualizationPayload {
+  steps: ImagingProcessStepPayload[];
+  paperDetection: PaperDetectionDiagnostics;
+  columnAlignmentConfidence: number[];
+  columnAlignmentOffsets: Array<{ dx: number; dy: number }>;
+  blockingReason?: string;
 }
 
 export interface BubbleRegion {

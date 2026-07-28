@@ -1,4 +1,5 @@
 import type {
+  GradingVisualizationPayload,
   OMRProcessingMode,
   OMRResultJson,
   OMRTemplate
@@ -32,9 +33,20 @@ type WorkerMessage =
   | { type: "result"; requestId: number; result: OMRResultJson }
   | { type: "error"; requestId: number; message: string; stage?: string; stack?: string }
   | { type: "preview-result"; requestId: number; preview: RectifiedPreview }
-  | { type: "preview-error"; requestId: number; message: string; stage?: string; stack?: string };
+  | { type: "preview-error"; requestId: number; message: string; stage?: string; stack?: string }
+  | {
+      type: "visualization-error";
+      requestId: number;
+      message: string;
+      stage?: string;
+      stack?: string;
+    }
+  | { type: "visualization-progress"; requestId: number; stage: string }
+  | { type: "visualization-json"; requestId: number; visualizationJson: string };
 
 const WORKER_TIMEOUT_MS = 180000;
+const WORKER_URL = "/omr-worker.js?v=paper-first-imaging-v3";
+const VISUALIZATION_WORKER_URL = "/omr-worker.js?v=paper-first-visualization-v18";
 
 interface PendingScan {
   resolve: (result: OMRResultJson) => void;
@@ -97,6 +109,7 @@ const teardownWorker = (error?: Error) => {
       pendingPreviews.delete(requestId);
     }
   }
+
 };
 
 const ensureWorkerReady = async (): Promise<Worker> => {
@@ -105,7 +118,7 @@ const ensureWorkerReady = async (): Promise<Worker> => {
     return sharedWorker;
   }
 
-  const worker = new Worker("/omr-worker.js", { type: "module" });
+  const worker = new Worker(WORKER_URL, { type: "module" });
   sharedWorker = worker;
   logWorkerDebug("Created module worker");
 
@@ -176,6 +189,18 @@ const ensureWorkerReady = async (): Promise<Worker> => {
         const stagePrefix = payload.stage ? `[${payload.stage}] ` : "";
         const stackSuffix = payload.stack ? ` (${payload.stack})` : "";
         pendingPreview.reject(new Error(`${stagePrefix}${payload.message}${stackSuffix}`));
+        return;
+      }
+
+      if (payload.type === "visualization-progress") {
+        return;
+      }
+
+      if (payload.type === "visualization-error") {
+        return;
+      }
+
+      if (payload.type === "visualization-json") {
         return;
       }
 
@@ -322,7 +347,8 @@ export const buildRectifiedPreviewInWorker = async (
   width: number,
   height: number,
   template: OMRTemplate,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options: OMRProcessingOptions = {}
 ): Promise<RectifiedPreview> => {
   if (typeof window === "undefined" || typeof Worker === "undefined") {
     throw new Error("Web Worker preview is not supported in this environment.");
@@ -382,9 +408,83 @@ export const buildRectifiedPreviewInWorker = async (
         imageRgbaBuffer,
         width,
         height,
+        template,
+        processingMode: options.mode ?? "legacy"
+      },
+      [imageRgbaBuffer]
+    );
+  });
+};
+
+export const buildGradingVisualizationInWorker = async (
+  imageRgbaBuffer: ArrayBuffer,
+  width: number,
+  height: number,
+  template: OMRTemplate,
+  onProgress?: (stage: string) => void
+): Promise<GradingVisualizationPayload> => {
+  if (typeof window === "undefined" || typeof Worker === "undefined") {
+    throw new Error("Web Worker visualization is not supported in this environment.");
+  }
+
+  const requestId = requestSeq;
+  requestSeq += 1;
+  logWorkerDebug(`Dispatching visualization #${requestId}`, { width, height });
+  if (pendingScans.size > 0) {
+    throw new Error("Wait for the current grading batch to finish before opening diagnostics.");
+  }
+  const worker = new Worker(VISUALIZATION_WORKER_URL, { type: "module" });
+  logWorkerDebug(`Created dedicated visualization worker #${requestId}`);
+
+  return await new Promise<GradingVisualizationPayload>((resolve, reject) => {
+    logWorkerDebug(`Configuring dedicated visualization worker #${requestId}`);
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      callback();
+    };
+    const timeoutId = window.setTimeout(() => {
+      finish(() => reject(new Error("Imaging process timed out.")));
+    }, WORKER_TIMEOUT_MS);
+    logWorkerDebug(`Configured visualization timeout #${requestId}`);
+
+    logWorkerDebug(`Attached visualization handlers #${requestId}`);
+    worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
+      const payload = event.data;
+      if (!payload || settled) return;
+      if (payload.type === "visualization-progress" && payload.requestId === requestId) {
+        logWorkerDebug(`Visualization #${requestId} stage`, payload.stage);
+        onProgress?.(payload.stage);
+        return;
+      }
+      if (payload.type === "visualization-json" && payload.requestId === requestId) {
+        logWorkerDebug(`Visualization #${requestId} metadata received`);
+        finish(() =>
+          resolve(JSON.parse(payload.visualizationJson) as GradingVisualizationPayload)
+        );
+        return;
+      }
+      if (payload.type === "visualization-error" && payload.requestId === requestId) {
+        finish(() => reject(new Error(payload.message)));
+      }
+    };
+    worker.onerror = (event) => {
+      finish(() => reject(new Error(`Visualization worker crashed: ${event.message}`)));
+    };
+    logWorkerDebug(`Posting visualization #${requestId} to dedicated worker`);
+    worker.postMessage(
+      {
+        type: "grading-visualization",
+        requestId,
+        imageRgbaBuffer,
+        width,
+        height,
         template
       },
       [imageRgbaBuffer]
     );
+    logWorkerDebug(`Posted visualization #${requestId} to dedicated worker`);
   });
 };
