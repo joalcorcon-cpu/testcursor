@@ -491,7 +491,6 @@ export function MainScannerDashboard() {
     const referenceName =
       queueRef.current.find((item) => item.id === referenceFileId)?.name ??
       "reference file";
-    const reprocessCount = queueRef.current.length;
     setQueue((current) => {
       const nextQueue = current.map((item) => {
         if (!reprocessIds.has(item.id)) {
@@ -567,6 +566,7 @@ export function MainScannerDashboard() {
     const referenceName =
       queueRef.current.find((item) => item.id === referenceFileId)?.name ??
       "reference file";
+    const reprocessCount = queueRef.current.length;
     setQueue((current) => {
       const nextQueue = current.map((item) => ({
         ...item,
