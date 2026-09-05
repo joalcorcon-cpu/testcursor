@@ -31,7 +31,6 @@ export interface PreparedCornerReference {
 interface ManualCornerCalibrationDialogProps {
   files: CornerCalibrationFileOption[];
   roiBoxes: RoiBoxVisual[];
-  initialMode: CalibrationMode;
   onPrepare: (fileId: string) => Promise<PreparedCornerReference>;
   onFinalize: (
     selection: ManualCalibrationSelection,
@@ -41,10 +40,10 @@ interface ManualCornerCalibrationDialogProps {
 }
 
 type SideId = keyof ManualSideCalibration;
-export type CalibrationMode = "corner" | "sides";
-export type ManualCalibrationSelection =
-  | { mode: "corner"; calibration: ManualCornerCalibration }
-  | { mode: "sides"; calibration: ManualSideCalibration };
+export interface ManualCalibrationSelection {
+  corner: ManualCornerCalibration;
+  sides: ManualSideCalibration;
+}
 
 const cornerOptions: Array<{ id: CornerId; label: string }> = [
   { id: "tl", label: "Upper left" },
@@ -77,12 +76,10 @@ const polygonPoints = (points: NormalizedCornerPoint[]) =>
 export function ManualCornerCalibrationDialog({
   files,
   roiBoxes,
-  initialMode,
   onPrepare,
   onFinalize,
   onClose
 }: ManualCornerCalibrationDialogProps) {
-  const [mode, setMode] = useState<CalibrationMode>(initialMode);
   const [cornerId, setCornerId] = useState<CornerId>("br");
   const [fileId, setFileId] = useState(
     files.find((file) => file.triangulated)?.id ?? files[0]?.id ?? ""
@@ -92,29 +89,30 @@ export function ManualCornerCalibrationDialog({
   const [sides, setSides] = useState<ManualSideCalibration>(defaultSides);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const adjustedCorners =
-    reference && mode === "corner" && manualPoint
+  const cornerAdjustedCorners: CornerPointMap | null =
+    reference && manualPoint
       ? { ...reference.points, [cornerId]: manualPoint }
-      : reference
-        ? {
-        tl: projectRectifiedPoint(reference.points, {
+      : reference?.points ?? null;
+  const adjustedCorners: CornerPointMap | null = cornerAdjustedCorners
+    ? {
+        tl: projectRectifiedPoint(cornerAdjustedCorners, {
           x: sides.left,
           y: sides.top
         }),
-        tr: projectRectifiedPoint(reference.points, {
+        tr: projectRectifiedPoint(cornerAdjustedCorners, {
           x: sides.right,
           y: sides.top
         }),
-        br: projectRectifiedPoint(reference.points, {
+        br: projectRectifiedPoint(cornerAdjustedCorners, {
           x: sides.right,
           y: sides.bottom
         }),
-        bl: projectRectifiedPoint(reference.points, {
+        bl: projectRectifiedPoint(cornerAdjustedCorners, {
           x: sides.left,
           y: sides.bottom
         })
-          }
-        : null;
+      }
+    : null;
   const projectedRois = adjustedCorners
     ? roiBoxes.flatMap((box) => {
         try {
@@ -184,12 +182,12 @@ export function ManualCornerCalibrationDialog({
     side: SideId
   ) => {
     const overlay = event.currentTarget.ownerSVGElement;
-    if (!overlay || !reference) {
+    if (!overlay || !cornerAdjustedCorners) {
       return;
     }
     const rect = overlay.getBoundingClientRect();
     try {
-      const sheetPoint = unprojectSourcePoint(reference.points, {
+      const sheetPoint = unprojectSourcePoint(cornerAdjustedCorners, {
         x: (event.clientX - rect.left) / rect.width,
         y: (event.clientY - rect.top) / rect.height
       });
@@ -234,29 +232,21 @@ export function ManualCornerCalibrationDialog({
   };
 
   const finalize = () => {
-    if (!reference || !fileId) {
+    if (!reference || !manualPoint || !fileId) {
       setError("Load a reference and position the calibration first.");
       return;
     }
-    if (mode === "corner") {
-      if (!manualPoint) {
-        setError("Position the selected corner first.");
-        return;
-      }
-      onFinalize(
-        {
-          mode,
-          calibration: deriveManualCornerCalibration(
-            reference.points,
-            cornerId,
-            manualPoint
-          )
-        },
-        fileId
-      );
-      return;
-    }
-    onFinalize({ mode, calibration: sides }, fileId);
+    onFinalize(
+      {
+        corner: deriveManualCornerCalibration(
+          reference.points,
+          cornerId,
+          manualPoint
+        ),
+        sides
+      },
+      fileId
+    );
   };
 
   return (
@@ -277,13 +267,10 @@ export function ManualCornerCalibrationDialog({
       >
         <header className="modal-header">
           <div>
-            <h2 id="manual-corner-title">
-              {mode === "corner" ? "Adjust triangulated corner" : "Adjust sheet sides"}
-            </h2>
+            <h2 id="manual-corner-title">Adjust corner and sheet sides</h2>
             <p className="subtle-text">
-              {mode === "corner"
-                ? "Move one inferred corner while keeping the other three as anchors."
-                : "Move sheet boundaries; their intersections become the four warp corners."}
+              Move the selected inferred corner and all four boundaries in the
+              same calibration.
             </p>
           </div>
           <button type="button" onClick={onClose}>Close</button>
@@ -291,39 +278,21 @@ export function ManualCornerCalibrationDialog({
 
         <div className="manual-corner-controls">
           <label>
-            Adjustment method
+            Corner to adjust
             <select
-              value={mode}
+              value={cornerId}
               disabled={loading}
               onChange={(event) => {
-                const nextMode = event.target.value as CalibrationMode;
-                setMode(nextMode);
-                setManualPoint(reference?.points[cornerId] ?? null);
-                setSides(defaultSides);
+                const nextCornerId = event.target.value as CornerId;
+                setCornerId(nextCornerId);
+                setManualPoint(reference?.points[nextCornerId] ?? null);
               }}
             >
-              <option value="corner">Adjust one corner</option>
-              <option value="sides">Adjust four sides</option>
+              {cornerOptions.map((corner) => (
+                <option key={corner.id} value={corner.id}>{corner.label}</option>
+              ))}
             </select>
           </label>
-          {mode === "corner" ? (
-            <label>
-              Corner to adjust
-              <select
-                value={cornerId}
-                disabled={loading}
-                onChange={(event) => {
-                  const nextCornerId = event.target.value as CornerId;
-                  setCornerId(nextCornerId);
-                  setManualPoint(reference?.points[nextCornerId] ?? null);
-                }}
-              >
-                {cornerOptions.map((corner) => (
-                  <option key={corner.id} value={corner.id}>{corner.label}</option>
-                ))}
-              </select>
-            </label>
-          ) : null}
           <label>
             Reference file
             <select
@@ -351,10 +320,9 @@ export function ManualCornerCalibrationDialog({
         {reference && adjustedCorners ? (
           <>
             <p className="manual-corner-help">
-              {mode === "corner"
-                ? "Drag the blue point to the intended corner. It can move into the padded area outside the image."
-                : "Drag any blue side to the intended sheet boundary. Boundaries can move outside the image."}{" "}
-              The outer quadrilateral and ROIs update dynamically.
+              Drag the blue corner point and any blue side. Both can move into
+              the padded area outside the image. The final quadrilateral and ROIs
+              update dynamically.
             </p>
             <div className="manual-corner-canvas">
               <div className="manual-corner-image-stage">
@@ -396,7 +364,7 @@ export function ManualCornerCalibrationDialog({
                         </text>
                       </g>
                     ))}
-                    {mode === "sides" ? sideLines.map(({ id, start, end }) => (
+                    {sideLines.map(({ id, start, end }) => (
                       <line
                         key={`side-hitbox-${id}`}
                         className={`manual-side-hitbox manual-side-hitbox-${id}`}
@@ -412,8 +380,8 @@ export function ManualCornerCalibrationDialog({
                           }
                         }}
                       />
-                    )) : null}
-                    {mode === "sides" ? sideLines.map(({ id, start, end }) => (
+                    ))}
+                    {sideLines.map(({ id, start, end }) => (
                       <line
                         key={`side-visible-${id}`}
                         className={`manual-side-line manual-side-line-${id}`}
@@ -423,7 +391,7 @@ export function ManualCornerCalibrationDialog({
                         y2={end.y * 100}
                         vectorEffect="non-scaling-stroke"
                       />
-                    )) : null}
+                    ))}
                   </svg>
                 ) : null}
                 {(Object.entries(reference.points) as Array<
@@ -436,7 +404,7 @@ export function ManualCornerCalibrationDialog({
                     title={`${id.toUpperCase()} detected or triangulated point`}
                   />
                 ))}
-                {mode === "sides" ? (Object.entries(adjustedCorners) as Array<
+                {(Object.entries(adjustedCorners) as Array<
                   [CornerId, NormalizedCornerPoint]
                 >).map(([id, point]) => (
                   <span
@@ -445,8 +413,8 @@ export function ManualCornerCalibrationDialog({
                     style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }}
                     title={`${id.toUpperCase()} adjusted side intersection`}
                   />
-                )) : null}
-                {mode === "corner" && manualPoint ? (
+                ))}
+                {manualPoint ? (
                   <button
                     type="button"
                     className="manual-corner-point manual-corner-point-active"
@@ -467,15 +435,13 @@ export function ManualCornerCalibrationDialog({
               </div>
             </div>
             <p className="subtle-text">
-              {mode === "corner" && manualPoint
-                ? `Corner position: ${(manualPoint.x * 100).toFixed(1)}% × ${(
-                    manualPoint.y * 100
-                  ).toFixed(1)}%`
-                : `Bounds: left ${(sides.left * 100).toFixed(1)}%, top ${(
-                    sides.top * 100
-                  ).toFixed(1)}%, right ${(sides.right * 100).toFixed(
-                    1
-                  )}%, bottom ${(sides.bottom * 100).toFixed(1)}%`}
+              Corner: {manualPoint ? `${(manualPoint.x * 100).toFixed(1)}% × ${(
+                manualPoint.y * 100
+              ).toFixed(1)}%` : "not set"} · Bounds: left{" "}
+              {(sides.left * 100).toFixed(1)}%, top{" "}
+              {(sides.top * 100).toFixed(1)}%, right{" "}
+              {(sides.right * 100).toFixed(1)}%, bottom{" "}
+              {(sides.bottom * 100).toFixed(1)}%
             </p>
           </>
         ) : (
@@ -490,7 +456,7 @@ export function ManualCornerCalibrationDialog({
           <button
             type="button"
             className="primary-action"
-            disabled={!reference || (mode === "corner" && !manualPoint) || loading}
+            disabled={!reference || !manualPoint || loading}
             onClick={finalize}
           >
             Finalize adjustment and reprocess triangulated files
