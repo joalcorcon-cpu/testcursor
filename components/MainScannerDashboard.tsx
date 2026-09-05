@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ManualCornerCalibrationDialog,
+  type PreparedCornerReference
+} from "@/components/ManualCornerCalibrationDialog";
 import { VisualParsingDialog } from "@/components/VisualParsingDialog";
 import {
   buildRoiReadAreaStepsFromRectifiedDataUrl,
@@ -8,12 +12,23 @@ import {
   type CornerWindowVisual,
   type VisualParseStep
 } from "@/lib/omr/buildVisualParsingSteps";
+import type { CornerPointMap } from "@/lib/omr/manualCornerCalibration";
 import { applyRoiBoxesToTemplate, type RoiBoxVisual } from "@/lib/omr/roiCalibration";
-import { processSheetFileInWorker, warmupOmrWorker } from "@/lib/omr/processSheetInWorker";
+import {
+  buildRectifiedPreviewInWorker,
+  processSheetFileInWorker,
+  warmupOmrWorker
+} from "@/lib/omr/processSheetInWorker";
 import { prepareImageForScan } from "@/lib/omr/prepareImageForScan";
 import { defaultSheetTemplate } from "@/lib/templates/defaultSheetTemplate";
 import { loadBundledCornerSnapshots } from "@/lib/templates/loadBundledCornerSnapshots";
-import type { ChoiceLabel, CornerSnapshot, OMRResultJson, OMRTemplate } from "@/types/omr";
+import type {
+  ChoiceLabel,
+  CornerSnapshot,
+  ManualCornerCalibration,
+  OMRResultJson,
+  OMRTemplate
+} from "@/types/omr";
 
 type QueueStatus = "queued" | "processing" | "done" | "error";
 
@@ -151,6 +166,24 @@ const clampThreshold = (value: number) =>
 const clampCornerAngleTolerance = (value: number) =>
   Number.isFinite(value) ? Math.min(30, Math.max(0.5, value)) : 4.5;
 
+const rgbaBufferToDataUrl = (
+  rgbaBuffer: ArrayBuffer,
+  width: number,
+  height: number
+): string => {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Unable to render the corner calibration reference.");
+  }
+  const imageData = context.createImageData(width, height);
+  imageData.data.set(new Uint8ClampedArray(rgbaBuffer));
+  context.putImageData(imageData, 0, 0);
+  return canvas.toDataURL("image/jpeg", 0.9);
+};
+
 const columnIndexToExcelLetter = (columnIndex: number): string => {
   let value = Math.max(1, Math.floor(columnIndex));
   let result = "";
@@ -234,6 +267,7 @@ export function MainScannerDashboard() {
   const [cornerAngleToleranceDegrees, setCornerAngleToleranceDegrees] = useState<number>(
     defaultSheetTemplate.scoring?.cornerAngleToleranceDegrees ?? 4.5
   );
+  const [manualCornerDialogOpen, setManualCornerDialogOpen] = useState(false);
   const [transformReview, setTransformReview] = useState<TransformReviewState>({
     isOpen: false,
     loading: false,
@@ -364,6 +398,102 @@ export function MainScannerDashboard() {
         ...(fileOverride.cornerSearchWindows ?? {})
       }
     };
+  };
+
+  const prepareManualCornerReference = async (
+    fileId: string
+  ): Promise<PreparedCornerReference> => {
+    const target = queueRef.current.find((item) => item.id === fileId);
+    if (!target) {
+      throw new Error("The selected reference file is no longer in the queue.");
+    }
+
+    const prepared = await prepareImageForScan(target.file);
+    const imageDataUrl = rgbaBufferToDataUrl(
+      prepared.rgbaBuffer,
+      prepared.width,
+      prepared.height
+    );
+    const preview = await buildRectifiedPreviewInWorker(
+      prepared.rgbaBuffer.slice(0),
+      prepared.width,
+      prepared.height,
+      buildProcessingTemplateForFile(fileId)
+    );
+    const pointEntries = preview.cornerDebug
+      ?.filter((entry) => entry.point)
+      .map((entry) => [
+        entry.id,
+        {
+          x: entry.point!.x / prepared.width,
+          y: entry.point!.y / prepared.height
+        }
+      ]);
+    if (!pointEntries || pointEntries.length !== 4) {
+      throw new Error(
+        "Four usable corner positions could not be resolved from this reference file."
+      );
+    }
+
+    return {
+      imageDataUrl,
+      points: Object.fromEntries(pointEntries) as CornerPointMap
+    };
+  };
+
+  const finalizeManualCornerCalibration = (
+    calibration: ManualCornerCalibration,
+    referenceFileId: string
+  ) => {
+    const nextReferenceTemplate = {
+      ...referenceTemplateRef.current,
+      manualCornerCalibration: calibration
+    };
+    referenceTemplateRef.current = nextReferenceTemplate;
+    setActiveTemplate((current) => ({
+      ...current,
+      manualCornerCalibration: calibration
+    }));
+
+    const reprocessIds = new Set(
+      queueRef.current
+        .filter((item) => (item.result?.pipeline.cornerTriangulatedCount ?? 0) > 0)
+        .map((item) => item.id)
+    );
+    const reprocessCount = reprocessIds.size;
+    const referenceName =
+      queueRef.current.find((item) => item.id === referenceFileId)?.name ??
+      "reference file";
+    setQueue((current) => {
+      const nextQueue = current.map((item) => {
+        if (!reprocessIds.has(item.id)) {
+          return item;
+        }
+        return {
+          ...item,
+          status: "queued" as const,
+          result: null,
+          detail: "Global corner calibration updated. Reprocessing...",
+          diagnostics: undefined
+        };
+      });
+      queueRef.current = nextQueue;
+      return nextQueue;
+    });
+    setManualCornerDialogOpen(false);
+    setError(
+      reprocessCount > 0
+        ? null
+        : "Calibration was saved, but no currently processed file used triangulation."
+    );
+    if (reprocessCount > 0) {
+      setScanStage(
+        `Corner calibration saved from ${referenceName}. Reprocessing ${reprocessCount} triangulated file${
+          reprocessCount === 1 ? "" : "s"
+        }...`
+      );
+      setAutoProcessTick((value) => value + 1);
+    }
   };
 
   const addFilesToQueue = (files: File[]) => {
@@ -599,7 +729,10 @@ export function MainScannerDashboard() {
   );
   useEffect(() => {
     const shouldLockBodyScroll =
-      visualDialogOpen || Boolean(overrideFileId) || transformReview.isOpen;
+      visualDialogOpen ||
+      Boolean(overrideFileId) ||
+      transformReview.isOpen ||
+      manualCornerDialogOpen;
     if (!shouldLockBodyScroll || typeof window === "undefined") {
       return;
     }
@@ -622,7 +755,12 @@ export function MainScannerDashboard() {
       body.style.width = previousWidth;
       window.scrollTo(0, scrollY);
     };
-  }, [visualDialogOpen, overrideFileId, transformReview.isOpen]);
+  }, [
+    visualDialogOpen,
+    overrideFileId,
+    transformReview.isOpen,
+    manualCornerDialogOpen
+  ]);
   const answerSelectionByQuestion = useMemo(() => {
     const map = new Map<number, ChoiceLabel[]>();
     for (const answer of transformReviewItem?.result?.answers ?? []) {
@@ -1225,6 +1363,14 @@ export function MainScannerDashboard() {
               <div className="queue-header-actions">
                 {loading ? <button onClick={cancelBatch}>Cancel</button> : null}
                 <button
+                  type="button"
+                  onClick={() => setManualCornerDialogOpen(true)}
+                  disabled={loading || queue.every((item) => !item.result)}
+                  title="Calibrate a missing corner from one reference file"
+                >
+                  ◩ Adjust Corner
+                </button>
+                <button
                   className="excel-export-button"
                   onClick={() => void exportResultsToExcel()}
                   disabled={exportBusy || queue.every((item) => !item.result)}
@@ -1348,6 +1494,20 @@ export function MainScannerDashboard() {
         </section>
       </section>
 
+      {manualCornerDialogOpen ? (
+        <ManualCornerCalibrationDialog
+          files={queue
+            .filter((item) => item.result)
+            .map((item) => ({
+              id: item.id,
+              name: item.name,
+              triangulated: (item.result?.pipeline.cornerTriangulatedCount ?? 0) > 0
+            }))}
+          onPrepare={prepareManualCornerReference}
+          onFinalize={finalizeManualCornerCalibration}
+          onClose={() => setManualCornerDialogOpen(false)}
+        />
+      ) : null}
       {overrideItem ? (
         <div
           className="override-backdrop"
