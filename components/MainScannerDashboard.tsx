@@ -218,7 +218,12 @@ const buildTransformSummary = (result: OMRResultJson, threshold: number): string
     `Ambiguous answers: ${ambiguousAnswers}`,
     `Corners detected: ${result.pipeline.cornerFoundCount ?? 0}/4`,
     `Corners used: ${result.pipeline.cornerUsedCount ?? 0}/4`,
-    `Corners triangulated: ${result.pipeline.cornerTriangulatedCount ?? 0}`
+    `Corners triangulated: ${result.pipeline.cornerTriangulatedCount ?? 0}`,
+    `Manual corner calibration: ${
+      result.pipeline.cornerCalibrationApplied
+        ? `applied to ${result.pipeline.cornerCalibrationCornerId?.toUpperCase() ?? "corner"}`
+        : "not applied"
+    }`
   ];
 };
 
