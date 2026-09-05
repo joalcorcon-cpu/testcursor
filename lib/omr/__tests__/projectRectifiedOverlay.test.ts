@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { CornerPointMap } from "../manualCornerCalibration";
-import { projectRectifiedPoint } from "../projectRectifiedOverlay";
+import {
+  projectRectifiedPoint,
+  unprojectSourcePoint
+} from "../projectRectifiedOverlay";
 
 const assertPoint = (
   actual: { x: number; y: number },
@@ -37,4 +40,17 @@ test("projects ROI points through an affine rectangle", () => {
     projectRectifiedPoint(corners, { x: 0.25, y: 0.5 }),
     { x: 0.3, y: 0.5 }
   );
+});
+
+test("maps dragged source positions back into sheet coordinates", () => {
+  const corners: CornerPointMap = {
+    tl: { x: 0.08, y: 0.04 },
+    tr: { x: 0.92, y: 0.1 },
+    br: { x: 1.04, y: 0.95 },
+    bl: { x: -0.03, y: 0.86 }
+  };
+  const sheetPoint = { x: 0.37, y: 0.72 };
+  const sourcePoint = projectRectifiedPoint(corners, sheetPoint);
+
+  assertPoint(unprojectSourcePoint(corners, sourcePoint), sheetPoint);
 });

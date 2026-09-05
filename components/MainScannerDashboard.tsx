@@ -29,7 +29,7 @@ import { loadBundledCornerSnapshots } from "@/lib/templates/loadBundledCornerSna
 import type {
   ChoiceLabel,
   CornerSnapshot,
-  ManualCornerCalibration,
+  ManualSideCalibration,
   OMRResultJson,
   OMRTemplate
 } from "@/types/omr";
@@ -223,9 +223,13 @@ const buildTransformSummary = (result: OMRResultJson, threshold: number): string
     `Corners detected: ${result.pipeline.cornerFoundCount ?? 0}/4`,
     `Corners used: ${result.pipeline.cornerUsedCount ?? 0}/4`,
     `Corners triangulated: ${result.pipeline.cornerTriangulatedCount ?? 0}`,
-    `Manual corner calibration: ${
-      result.pipeline.cornerCalibrationApplied
-        ? `applied to ${result.pipeline.cornerCalibrationCornerId?.toUpperCase() ?? "corner"}`
+    `Manual side calibration: ${
+      result.pipeline.sideCalibrationApplied
+        ? "applied"
+        : result.pipeline.cornerCalibrationApplied
+          ? `legacy corner adjustment applied to ${
+              result.pipeline.cornerCalibrationCornerId?.toUpperCase() ?? "corner"
+            }`
         : "not applied"
     }`
   ];
@@ -423,11 +427,16 @@ export function MainScannerDashboard() {
       prepared.width,
       prepared.height
     );
+    const processingTemplate = buildProcessingTemplateForFile(fileId);
     const preview = await buildRectifiedPreviewInWorker(
       prepared.rgbaBuffer.slice(0),
       prepared.width,
       prepared.height,
-      buildProcessingTemplateForFile(fileId)
+      {
+        ...processingTemplate,
+        manualCornerCalibration: undefined,
+        manualSideCalibration: undefined
+      }
     );
     const pointEntries = preview.cornerDebug
       ?.filter((entry) => entry.point)
@@ -451,17 +460,19 @@ export function MainScannerDashboard() {
   };
 
   const finalizeManualCornerCalibration = (
-    calibration: ManualCornerCalibration,
+    calibration: ManualSideCalibration,
     referenceFileId: string
   ) => {
     const nextReferenceTemplate = {
       ...referenceTemplateRef.current,
-      manualCornerCalibration: calibration
+      manualCornerCalibration: undefined,
+      manualSideCalibration: calibration
     };
     referenceTemplateRef.current = nextReferenceTemplate;
     setActiveTemplate((current) => ({
       ...current,
-      manualCornerCalibration: calibration
+      manualCornerCalibration: undefined,
+      manualSideCalibration: calibration
     }));
 
     const reprocessIds = new Set(
@@ -482,7 +493,7 @@ export function MainScannerDashboard() {
           ...item,
           status: "queued" as const,
           result: null,
-          detail: "Global corner calibration updated. Reprocessing...",
+          detail: "Global side calibration updated. Reprocessing...",
           diagnostics: undefined
         };
       });
@@ -497,7 +508,7 @@ export function MainScannerDashboard() {
     );
     if (reprocessCount > 0) {
       setScanStage(
-        `Corner calibration saved from ${referenceName}. Reprocessing ${reprocessCount} triangulated file${
+        `Side calibration saved from ${referenceName}. Reprocessing ${reprocessCount} triangulated file${
           reprocessCount === 1 ? "" : "s"
         }...`
       );
@@ -1375,9 +1386,9 @@ export function MainScannerDashboard() {
                   type="button"
                   onClick={() => setManualCornerDialogOpen(true)}
                   disabled={loading || queue.every((item) => !item.result)}
-                  title="Calibrate a missing corner from one reference file"
+                  title="Adjust sheet boundaries from one reference file"
                 >
-                  ◩ Adjust Corner
+                  ◩ Adjust Sides
                 </button>
                 <button
                   className="excel-export-button"

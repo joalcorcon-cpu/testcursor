@@ -797,7 +797,7 @@ pre {
 
 .manual-corner-controls {
   display: grid;
-  grid-template-columns: minmax(150px, 0.7fr) minmax(220px, 1.3fr) auto;
+  grid-template-columns: minmax(220px, 1fr) auto;
   align-items: end;
   gap: 0.75rem;
 }
@@ -866,12 +866,14 @@ pre {
   stroke: #3366ff;
   stroke-width: 3;
   stroke-dasharray: 8 5;
+  pointer-events: none;
 }
 
 .manual-corner-roi {
   fill: rgba(18, 183, 106, 0.08);
   stroke: #12b76a;
   stroke-width: 2;
+  pointer-events: none;
 }
 
 .manual-corner-roi-answersCol1,
@@ -889,6 +891,30 @@ pre {
   font-size: 2.2px;
   font-weight: 800;
   letter-spacing: 0.05px;
+  pointer-events: none;
+}
+
+.manual-side-hitbox {
+  stroke: transparent;
+  stroke-width: 22;
+  pointer-events: stroke;
+  touch-action: none;
+}
+
+.manual-side-hitbox-top,
+.manual-side-hitbox-bottom {
+  cursor: ns-resize;
+}
+
+.manual-side-hitbox-left,
+.manual-side-hitbox-right {
+  cursor: ew-resize;
+}
+
+.manual-side-line {
+  stroke: #3366ff;
+  stroke-width: 4;
+  pointer-events: none;
 }
 
 .manual-corner-point {
@@ -911,6 +937,13 @@ pre {
 .manual-corner-point-original {
   background: #f79009;
   box-shadow: 0 0 0 2px #b54708;
+}
+
+.manual-corner-point-adjusted {
+  width: 16px;
+  height: 16px;
+  background: #3366ff;
+  box-shadow: 0 0 0 2px #004eeb;
 }
 
 .manual-corner-point-active {
