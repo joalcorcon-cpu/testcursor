@@ -13,7 +13,11 @@ import {
   type VisualParseStep
 } from "@/lib/omr/buildVisualParsingSteps";
 import type { CornerPointMap } from "@/lib/omr/manualCornerCalibration";
-import { applyRoiBoxesToTemplate, type RoiBoxVisual } from "@/lib/omr/roiCalibration";
+import {
+  applyRoiBoxesToTemplate,
+  deriveRoiBoxesFromTemplate,
+  type RoiBoxVisual
+} from "@/lib/omr/roiCalibration";
 import {
   buildRectifiedPreviewInWorker,
   processSheetFileInWorker,
@@ -1508,6 +1512,7 @@ export function MainScannerDashboard() {
               name: item.name,
               triangulated: (item.result?.pipeline.cornerTriangulatedCount ?? 0) > 0
             }))}
+          roiBoxes={deriveRoiBoxesFromTemplate(referenceTemplateRef.current)}
           onPrepare={prepareManualCornerReference}
           onFinalize={finalizeManualCornerCalibration}
           onClose={() => setManualCornerDialogOpen(false)}

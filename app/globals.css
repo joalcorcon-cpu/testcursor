@@ -851,11 +851,52 @@ pre {
   pointer-events: none;
 }
 
+.manual-corner-projection {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.manual-corner-outer-polygon {
+  fill: rgba(51, 102, 255, 0.05);
+  stroke: #3366ff;
+  stroke-width: 3;
+  stroke-dasharray: 8 5;
+}
+
+.manual-corner-roi {
+  fill: rgba(18, 183, 106, 0.08);
+  stroke: #12b76a;
+  stroke-width: 2;
+}
+
+.manual-corner-roi-answersCol1,
+.manual-corner-roi-answersCol2,
+.manual-corner-roi-answersCol3 {
+  fill: rgba(247, 144, 9, 0.06);
+  stroke: #f79009;
+}
+
+.manual-corner-roi-label {
+  fill: #ffffff;
+  stroke: rgba(0, 0, 0, 0.9);
+  stroke-width: 3px;
+  paint-order: stroke fill;
+  font-size: 2.2px;
+  font-weight: 800;
+  letter-spacing: 0.05px;
+}
+
 .manual-corner-point {
   position: absolute;
   transform: translate(-50%, -50%);
   border-radius: 999px;
   box-sizing: border-box;
+  z-index: 2;
 }
 
 .manual-corner-point-fixed {

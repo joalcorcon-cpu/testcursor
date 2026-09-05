@@ -7,6 +7,8 @@ import {
   type CornerPointMap,
   type NormalizedCornerPoint
 } from "@/lib/omr/manualCornerCalibration";
+import { projectRectifiedPoint } from "@/lib/omr/projectRectifiedOverlay";
+import type { RoiBoxVisual } from "@/lib/omr/roiCalibration";
 import type { ManualCornerCalibration } from "@/types/omr";
 
 export interface CornerCalibrationFileOption {
@@ -22,6 +24,7 @@ export interface PreparedCornerReference {
 
 interface ManualCornerCalibrationDialogProps {
   files: CornerCalibrationFileOption[];
+  roiBoxes: RoiBoxVisual[];
   onPrepare: (fileId: string) => Promise<PreparedCornerReference>;
   onFinalize: (
     calibration: ManualCornerCalibration,
@@ -39,8 +42,21 @@ const cornerOptions: Array<{ id: CornerId; label: string }> = [
 
 const clampPoint = (value: number) => Math.min(1.2, Math.max(-0.2, value));
 
+const roiLabels: Record<RoiBoxVisual["id"], string> = {
+  studentId: "Student ID",
+  examCode: "Exam Code",
+  examSet: "Exam Set",
+  answersCol1: "Answers 1–35",
+  answersCol2: "Answers 36–70",
+  answersCol3: "Answers 71–100"
+};
+
+const polygonPoints = (points: NormalizedCornerPoint[]) =>
+  points.map((point) => `${point.x * 100},${point.y * 100}`).join(" ");
+
 export function ManualCornerCalibrationDialog({
   files,
+  roiBoxes,
   onPrepare,
   onFinalize,
   onClose
@@ -54,6 +70,41 @@ export function ManualCornerCalibrationDialog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const adjustedCorners =
+    reference && manualPoint
+      ? {
+          ...reference.points,
+          [cornerId]: manualPoint
+        }
+      : null;
+  const projectedRois = adjustedCorners
+    ? roiBoxes.flatMap((box) => {
+        try {
+          const points = [
+            projectRectifiedPoint(adjustedCorners, { x: box.x, y: box.y }),
+            projectRectifiedPoint(adjustedCorners, {
+              x: box.x + box.w,
+              y: box.y
+            }),
+            projectRectifiedPoint(adjustedCorners, {
+              x: box.x + box.w,
+              y: box.y + box.h
+            }),
+            projectRectifiedPoint(adjustedCorners, {
+              x: box.x,
+              y: box.y + box.h
+            })
+          ];
+          const labelPoint = projectRectifiedPoint(adjustedCorners, {
+            x: box.x + box.w / 2,
+            y: box.y + box.h / 2
+          });
+          return [{ box, points, labelPoint }];
+        } catch {
+          return [];
+        }
+      })
+    : [];
 
   const prepareReference = async () => {
     if (!fileId) {
@@ -191,6 +242,44 @@ export function ManualCornerCalibrationDialog({
               <div className="manual-corner-image-stage" ref={stageRef}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={reference.imageDataUrl} alt="Unwarped reference answer sheet" />
+                {adjustedCorners ? (
+                  <svg
+                    className="manual-corner-projection"
+                    viewBox="0 0 100 100"
+                    preserveAspectRatio="none"
+                    aria-hidden="true"
+                  >
+                    <polygon
+                      className="manual-corner-outer-polygon"
+                      points={polygonPoints([
+                        adjustedCorners.tl,
+                        adjustedCorners.tr,
+                        adjustedCorners.br,
+                        adjustedCorners.bl
+                      ])}
+                      vectorEffect="non-scaling-stroke"
+                    />
+                    {projectedRois.map(({ box, points, labelPoint }) => (
+                      <g key={box.id}>
+                        <polygon
+                          className={`manual-corner-roi manual-corner-roi-${box.id}`}
+                          points={polygonPoints(points)}
+                          vectorEffect="non-scaling-stroke"
+                        />
+                        <text
+                          className="manual-corner-roi-label"
+                          x={labelPoint.x * 100}
+                          y={labelPoint.y * 100}
+                          textAnchor="middle"
+                          dominantBaseline="middle"
+                          vectorEffect="non-scaling-stroke"
+                        >
+                          {roiLabels[box.id]}
+                        </text>
+                      </g>
+                    ))}
+                  </svg>
+                ) : null}
                 {(Object.entries(reference.points) as Array<
                   [CornerId, NormalizedCornerPoint]
                 >).map(([id, point]) => (
