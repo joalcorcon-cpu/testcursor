@@ -24,6 +24,19 @@ export interface CornerSnapshot {
   centroidY?: number;
 }
 
+export interface ManualCornerCalibration {
+  cornerId: CornerMarker["id"];
+  offsetU: number;
+  offsetV: number;
+}
+
+export interface ManualSideCalibration {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
 export interface DigitColumnRegion {
   key: string;
   digits: number;
@@ -49,6 +62,8 @@ export interface OMRTemplate {
   cornerMarkers: CornerMarker[];
   cornerSearchWindows?: Partial<Record<CornerMarker["id"], BubbleRegion>>;
   cornerSnapshots?: Partial<Record<CornerMarker["id"], CornerSnapshot>>;
+  manualCornerCalibration?: ManualCornerCalibration;
+  manualSideCalibration?: ManualSideCalibration;
   scoring?: {
     darknessThreshold?: number;
     cornerAngleToleranceDegrees?: number;
@@ -114,6 +129,9 @@ export interface OMRResultJson {
       bl: number;
     };
     cornerUneven?: boolean;
+    cornerCalibrationApplied?: boolean;
+    cornerCalibrationCornerId?: CornerMarker["id"];
+    sideCalibrationApplied?: boolean;
   };
 }
 

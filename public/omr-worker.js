@@ -530,6 +530,141 @@ const inferMissingCornersBySimilarity = (pointsById, canonicalById) => {
   return inferred;
 };
 
+const applyManualCalibrationToCorner = (pointsById, calibration) => {
+  const cornerId = calibration?.cornerId;
+  if (
+    !["tl", "tr", "br", "bl"].includes(cornerId) ||
+    !Number.isFinite(calibration?.offsetU) ||
+    !Number.isFinite(calibration?.offsetV)
+  ) {
+    return null;
+  }
+
+  const otherPoints = { ...pointsById };
+  delete otherPoints[cornerId];
+  const inferred = inferMissingCornerByParallelogram(otherPoints);
+  if (!inferred || inferred.id !== cornerId) {
+    return null;
+  }
+
+  let horizontal;
+  let vertical;
+  if (cornerId === "tl") {
+    horizontal = {
+      x: pointsById.br.x - pointsById.bl.x,
+      y: pointsById.br.y - pointsById.bl.y
+    };
+    vertical = {
+      x: pointsById.br.x - pointsById.tr.x,
+      y: pointsById.br.y - pointsById.tr.y
+    };
+  } else if (cornerId === "tr") {
+    horizontal = {
+      x: pointsById.br.x - pointsById.bl.x,
+      y: pointsById.br.y - pointsById.bl.y
+    };
+    vertical = {
+      x: pointsById.bl.x - pointsById.tl.x,
+      y: pointsById.bl.y - pointsById.tl.y
+    };
+  } else if (cornerId === "br") {
+    horizontal = {
+      x: pointsById.tr.x - pointsById.tl.x,
+      y: pointsById.tr.y - pointsById.tl.y
+    };
+    vertical = {
+      x: pointsById.bl.x - pointsById.tl.x,
+      y: pointsById.bl.y - pointsById.tl.y
+    };
+  } else {
+    horizontal = {
+      x: pointsById.tr.x - pointsById.tl.x,
+      y: pointsById.tr.y - pointsById.tl.y
+    };
+    vertical = {
+      x: pointsById.br.x - pointsById.tr.x,
+      y: pointsById.br.y - pointsById.tr.y
+    };
+  }
+
+  const offsetU = clamp(calibration.offsetU, -0.5, 0.5);
+  const offsetV = clamp(calibration.offsetV, -0.5, 0.5);
+  return {
+    x: inferred.point.x + offsetU * horizontal.x + offsetV * vertical.x,
+    y: inferred.point.y + offsetU * horizontal.y + offsetV * vertical.y
+  };
+};
+
+const projectSheetPointToCorners = (pointsById, point) => {
+  const tl = pointsById.tl;
+  const tr = pointsById.tr;
+  const br = pointsById.br;
+  const bl = pointsById.bl;
+  const dx1 = tr.x - br.x;
+  const dx2 = bl.x - br.x;
+  const dx3 = tl.x - tr.x + br.x - bl.x;
+  const dy1 = tr.y - br.y;
+  const dy2 = bl.y - br.y;
+  const dy3 = tl.y - tr.y + br.y - bl.y;
+  const denominator = dx1 * dy2 - dx2 * dy1;
+
+  let a;
+  let b;
+  const c = tl.x;
+  let d;
+  let e;
+  const f = tl.y;
+  let g = 0;
+  let h = 0;
+  if (Math.abs(dx3) < 1e-10 && Math.abs(dy3) < 1e-10) {
+    a = tr.x - tl.x;
+    b = bl.x - tl.x;
+    d = tr.y - tl.y;
+    e = bl.y - tl.y;
+  } else {
+    if (Math.abs(denominator) < 1e-10) {
+      return null;
+    }
+    g = (dx3 * dy2 - dx2 * dy3) / denominator;
+    h = (dx1 * dy3 - dx3 * dy1) / denominator;
+    a = tr.x - tl.x + g * tr.x;
+    b = bl.x - tl.x + h * bl.x;
+    d = tr.y - tl.y + g * tr.y;
+    e = bl.y - tl.y + h * bl.y;
+  }
+
+  const scale = g * point.x + h * point.y + 1;
+  if (Math.abs(scale) < 1e-10) {
+    return null;
+  }
+  return {
+    x: (a * point.x + b * point.y + c) / scale,
+    y: (d * point.x + e * point.y + f) / scale
+  };
+};
+
+const applyManualSideCalibration = (pointsById, calibration) => {
+  const top = clamp(Number(calibration?.top), -0.2, 1.2);
+  const right = clamp(Number(calibration?.right), -0.2, 1.2);
+  const bottom = clamp(Number(calibration?.bottom), -0.2, 1.2);
+  const left = clamp(Number(calibration?.left), -0.2, 1.2);
+  if (
+    ![top, right, bottom, left].every(Number.isFinite) ||
+    left + 0.1 >= right ||
+    top + 0.1 >= bottom
+  ) {
+    return null;
+  }
+
+  const adjusted = {
+    tl: projectSheetPointToCorners(pointsById, { x: left, y: top }),
+    tr: projectSheetPointToCorners(pointsById, { x: right, y: top }),
+    br: projectSheetPointToCorners(pointsById, { x: right, y: bottom }),
+    bl: projectSheetPointToCorners(pointsById, { x: left, y: bottom })
+  };
+  return Object.values(adjusted).every(Boolean) ? adjusted : null;
+};
+
 const cornerAngleDegrees = (previousPoint, vertexPoint, nextPoint) => {
   const v1x = previousPoint.x - vertexPoint.x;
   const v1y = previousPoint.y - vertexPoint.y;
@@ -828,16 +963,34 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
   }
 
   const initialFoundCount = Object.keys(pointsById).length;
+  const triangulatedCornerIds = new Set();
   if (initialFoundCount < 4) {
     const inferredFromThree = inferMissingCornerByParallelogram(pointsById);
     if (inferredFromThree) {
       pointsById[inferredFromThree.id] = inferredFromThree.point;
+      triangulatedCornerIds.add(inferredFromThree.id);
     }
   }
   if (Object.keys(pointsById).length < 4) {
     const inferredBySimilarity = inferMissingCornersBySimilarity(pointsById, canonicalById);
     if (inferredBySimilarity) {
+      for (const id of Object.keys(inferredBySimilarity)) {
+        triangulatedCornerIds.add(id);
+      }
       Object.assign(pointsById, inferredBySimilarity);
+    }
+  }
+
+  let calibrationApplied = false;
+  const calibrationCornerId = template?.manualCornerCalibration?.cornerId;
+  if (triangulatedCornerIds.has(calibrationCornerId)) {
+    const calibratedPoint = applyManualCalibrationToCorner(
+      pointsById,
+      template.manualCornerCalibration
+    );
+    if (calibratedPoint) {
+      pointsById[calibrationCornerId] = calibratedPoint;
+      calibrationApplied = true;
     }
   }
 
@@ -853,6 +1006,10 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
       existingDebug.method = `${existingDebug.method}+triangulated-rectangle`;
       existingDebug.point = { x: pointsById[id].x, y: pointsById[id].y };
     }
+    if (calibrationApplied && id === calibrationCornerId) {
+      existingDebug.method = `${existingDebug.method}+manual-calibration`;
+      existingDebug.point = { x: pointsById[id].x, y: pointsById[id].y };
+    }
   }
 
   if (Object.keys(pointsById).length < 4) {
@@ -866,7 +1023,9 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
       debug: orderedMarkers.map((marker) => debugById.get(marker.id)),
       foundByDetectionCount: initialFoundCount,
       foundAfterTriangulationCount: Object.keys(pointsById).length,
-      triangulatedCount: Math.max(0, Object.keys(pointsById).length - initialFoundCount)
+      triangulatedCount: triangulatedCornerIds.size,
+      calibrationApplied,
+      calibrationCornerId: calibrationApplied ? calibrationCornerId : undefined
     };
   }
   let corners = orderedMarkers.map((marker) => ({
@@ -875,8 +1034,6 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
   }));
   let angleDiagnostics = buildCornerAngleDiagnostics(corners, angleToleranceDegrees);
   const foundAfterTriangulationCount = Object.keys(pointsById).length;
-  const triangulatedFromMissingCount = Math.max(0, foundAfterTriangulationCount - initialFoundCount);
-  let correctedMisalignedCount = 0;
   if (
     initialFoundCount === 4 &&
     computeCornerMaxDeviation(angleDiagnostics.angles) > angleToleranceDegrees
@@ -927,14 +1084,59 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
     }
     if (bestCorrection && bestCorrection.deviation + 0.25 < currentDeviation) {
       pointsById[bestCorrection.id] = bestCorrection.point;
-      corners = bestCorrection.corners;
-      angleDiagnostics = bestCorrection.diagnostics;
-      correctedMisalignedCount = 1;
+      triangulatedCornerIds.add(bestCorrection.id);
+      if (bestCorrection.id === calibrationCornerId) {
+        const calibratedPoint = applyManualCalibrationToCorner(
+          pointsById,
+          template.manualCornerCalibration
+        );
+        if (calibratedPoint) {
+          pointsById[bestCorrection.id] = calibratedPoint;
+          calibrationApplied = true;
+        }
+      }
+      corners = orderedMarkers.map((marker) => ({
+        x: pointsById[marker.id].x,
+        y: pointsById[marker.id].y
+      }));
+      angleDiagnostics = buildCornerAngleDiagnostics(corners, angleToleranceDegrees);
       const correctedDebug = debugById.get(bestCorrection.id);
       if (correctedDebug) {
         correctedDebug.found = true;
         correctedDebug.method = `${correctedDebug.method}+triangulated-rectangle`;
-        correctedDebug.point = { x: bestCorrection.point.x, y: bestCorrection.point.y };
+        if (calibrationApplied && bestCorrection.id === calibrationCornerId) {
+          correctedDebug.method = `${correctedDebug.method}+manual-calibration`;
+        }
+        correctedDebug.point = {
+          x: pointsById[bestCorrection.id].x,
+          y: pointsById[bestCorrection.id].y
+        };
+      }
+    }
+  }
+  let sideCalibrationApplied = false;
+  if (triangulatedCornerIds.size > 0 && template?.manualSideCalibration) {
+    const sideAdjustedPoints = applyManualSideCalibration(
+      pointsById,
+      template.manualSideCalibration
+    );
+    if (sideAdjustedPoints) {
+      Object.assign(pointsById, sideAdjustedPoints);
+      corners = orderedMarkers.map((marker) => ({
+        x: pointsById[marker.id].x,
+        y: pointsById[marker.id].y
+      }));
+      angleDiagnostics = buildCornerAngleDiagnostics(corners, angleToleranceDegrees);
+      sideCalibrationApplied = true;
+      for (const marker of orderedMarkers) {
+        const debug = debugById.get(marker.id);
+        if (debug) {
+          debug.method = `${debug.method}+manual-side-calibration`;
+          debug.point = {
+            x: pointsById[marker.id].x,
+            y: pointsById[marker.id].y
+          };
+        }
       }
     }
   }
@@ -951,7 +1153,10 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
       debug: cornerDetections.map((entry) => entry.debug),
       foundByDetectionCount: initialFoundCount,
       foundAfterTriangulationCount,
-      triangulatedCount: triangulatedFromMissingCount + correctedMisalignedCount
+      triangulatedCount: triangulatedCornerIds.size,
+      calibrationApplied,
+      calibrationCornerId: calibrationApplied ? calibrationCornerId : undefined,
+      sideCalibrationApplied
     };
   }
 
@@ -961,9 +1166,12 @@ const resolveSheetCorners = (cv, gray, thresholded, template, otsuThreshold) => 
     debug: orderedMarkers.map((marker) => debugById.get(marker.id)),
     foundByDetectionCount: initialFoundCount,
     foundAfterTriangulationCount,
-    triangulatedCount: triangulatedFromMissingCount + correctedMisalignedCount,
+    triangulatedCount: triangulatedCornerIds.size,
     cornerAngles: angleDiagnostics.angles,
-    cornerUneven: angleDiagnostics.uneven
+    cornerUneven: angleDiagnostics.uneven,
+    calibrationApplied,
+    calibrationCornerId: calibrationApplied ? calibrationCornerId : undefined,
+    sideCalibrationApplied
   };
 };
 
@@ -978,7 +1186,10 @@ const rectifySheet = (cv, gray, thresholded, template, otsuThreshold) => {
       cornerUsedCount: cornerResolution.foundAfterTriangulationCount,
       cornerTriangulatedCount: cornerResolution.triangulatedCount,
       cornerAngles: cornerResolution.cornerAngles,
-      cornerUneven: cornerResolution.cornerUneven
+      cornerUneven: cornerResolution.cornerUneven,
+      cornerCalibrationApplied: cornerResolution.calibrationApplied,
+      cornerCalibrationCornerId: cornerResolution.calibrationCornerId,
+      sideCalibrationApplied: cornerResolution.sideCalibrationApplied
     };
   }
 
@@ -1027,7 +1238,10 @@ const rectifySheet = (cv, gray, thresholded, template, otsuThreshold) => {
     cornerUsedCount: cornerResolution.foundAfterTriangulationCount,
     cornerTriangulatedCount: cornerResolution.triangulatedCount,
     cornerAngles: cornerResolution.cornerAngles,
-    cornerUneven: cornerResolution.cornerUneven
+    cornerUneven: cornerResolution.cornerUneven,
+    cornerCalibrationApplied: cornerResolution.calibrationApplied,
+    cornerCalibrationCornerId: cornerResolution.calibrationCornerId,
+    sideCalibrationApplied: cornerResolution.sideCalibrationApplied
   };
 };
 
@@ -1192,7 +1406,10 @@ const runScan = async ({ requestId, imageRgbaBuffer, width, height, template }) 
         cornerUsedCount: rectified.cornerUsedCount,
         cornerTriangulatedCount: rectified.cornerTriangulatedCount,
         cornerAngles: rectified.cornerAngles,
-        cornerUneven: rectified.cornerUneven
+        cornerUneven: rectified.cornerUneven,
+        cornerCalibrationApplied: rectified.cornerCalibrationApplied,
+        cornerCalibrationCornerId: rectified.cornerCalibrationCornerId,
+        sideCalibrationApplied: rectified.sideCalibrationApplied
       }
     };
   } finally {
