@@ -797,7 +797,7 @@ pre {
 
 .manual-corner-controls {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   align-items: end;
   gap: 0.75rem;
 }

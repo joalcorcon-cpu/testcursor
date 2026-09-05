@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ManualCornerCalibrationDialog,
+  type CalibrationMode,
+  type ManualCalibrationSelection,
   type PreparedCornerReference
 } from "@/components/ManualCornerCalibrationDialog";
 import { VisualParsingDialog } from "@/components/VisualParsingDialog";
@@ -29,7 +31,6 @@ import { loadBundledCornerSnapshots } from "@/lib/templates/loadBundledCornerSna
 import type {
   ChoiceLabel,
   CornerSnapshot,
-  ManualSideCalibration,
   OMRResultJson,
   OMRTemplate
 } from "@/types/omr";
@@ -281,6 +282,8 @@ export function MainScannerDashboard() {
     defaultSheetTemplate.scoring?.cornerAngleToleranceDegrees ?? 4.5
   );
   const [manualCornerDialogOpen, setManualCornerDialogOpen] = useState(false);
+  const [manualCalibrationMode, setManualCalibrationMode] =
+    useState<CalibrationMode>("corner");
   const [transformReview, setTransformReview] = useState<TransformReviewState>({
     isOpen: false,
     loading: false,
@@ -460,19 +463,23 @@ export function MainScannerDashboard() {
   };
 
   const finalizeManualCornerCalibration = (
-    calibration: ManualSideCalibration,
+    selection: ManualCalibrationSelection,
     referenceFileId: string
   ) => {
     const nextReferenceTemplate = {
       ...referenceTemplateRef.current,
-      manualCornerCalibration: undefined,
-      manualSideCalibration: calibration
+      manualCornerCalibration:
+        selection.mode === "corner" ? selection.calibration : undefined,
+      manualSideCalibration:
+        selection.mode === "sides" ? selection.calibration : undefined
     };
     referenceTemplateRef.current = nextReferenceTemplate;
     setActiveTemplate((current) => ({
       ...current,
-      manualCornerCalibration: undefined,
-      manualSideCalibration: calibration
+      manualCornerCalibration:
+        selection.mode === "corner" ? selection.calibration : undefined,
+      manualSideCalibration:
+        selection.mode === "sides" ? selection.calibration : undefined
     }));
 
     const reprocessIds = new Set(
@@ -493,7 +500,7 @@ export function MainScannerDashboard() {
           ...item,
           status: "queued" as const,
           result: null,
-          detail: "Global side calibration updated. Reprocessing...",
+          detail: `Global ${selection.mode} calibration updated. Reprocessing...`,
           diagnostics: undefined
         };
       });
@@ -508,7 +515,9 @@ export function MainScannerDashboard() {
     );
     if (reprocessCount > 0) {
       setScanStage(
-        `Side calibration saved from ${referenceName}. Reprocessing ${reprocessCount} triangulated file${
+        `${
+          selection.mode === "corner" ? "Corner" : "Side"
+        } calibration saved from ${referenceName}. Reprocessing ${reprocessCount} triangulated file${
           reprocessCount === 1 ? "" : "s"
         }...`
       );
@@ -1384,11 +1393,25 @@ export function MainScannerDashboard() {
                 {loading ? <button onClick={cancelBatch}>Cancel</button> : null}
                 <button
                   type="button"
-                  onClick={() => setManualCornerDialogOpen(true)}
+                  onClick={() => {
+                    setManualCalibrationMode("corner");
+                    setManualCornerDialogOpen(true);
+                  }}
+                  disabled={loading || queue.every((item) => !item.result)}
+                  title="Adjust one triangulated corner from a reference file"
+                >
+                  ◩ Adjust Corner
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setManualCalibrationMode("sides");
+                    setManualCornerDialogOpen(true);
+                  }}
                   disabled={loading || queue.every((item) => !item.result)}
                   title="Adjust sheet boundaries from one reference file"
                 >
-                  ◩ Adjust Sides
+                  ▭ Adjust Sides
                 </button>
                 <button
                   className="excel-export-button"
@@ -1516,6 +1539,7 @@ export function MainScannerDashboard() {
 
       {manualCornerDialogOpen ? (
         <ManualCornerCalibrationDialog
+          initialMode={manualCalibrationMode}
           files={queue
             .filter((item) => item.result)
             .map((item) => ({
