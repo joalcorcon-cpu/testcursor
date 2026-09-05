@@ -2,6 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  GlobalRoiCalibrationDialog,
+  type PreparedRoiReference
+} from "@/components/GlobalRoiCalibrationDialog";
+import {
   ManualCornerCalibrationDialog,
   type ManualCalibrationSelection,
   type PreparedCornerReference
@@ -283,6 +287,7 @@ export function MainScannerDashboard() {
     defaultSheetTemplate.scoring?.cornerAngleToleranceDegrees ?? 4.5
   );
   const [manualCornerDialogOpen, setManualCornerDialogOpen] = useState(false);
+  const [globalRoiDialogOpen, setGlobalRoiDialogOpen] = useState(false);
   const [transformReview, setTransformReview] = useState<TransformReviewState>({
     isOpen: false,
     loading: false,
@@ -516,6 +521,71 @@ export function MainScannerDashboard() {
       );
       setAutoProcessTick((value) => value + 1);
     }
+  };
+
+  const prepareGlobalRoiReference = async (
+    fileId: string
+  ): Promise<PreparedRoiReference> => {
+    const target = queueRef.current.find((item) => item.id === fileId);
+    if (!target) {
+      throw new Error("The selected reference file is no longer in the queue.");
+    }
+    const prepared = await prepareImageForScan(target.file);
+    const preview = await buildRectifiedPreviewInWorker(
+      prepared.rgbaBuffer.slice(0),
+      prepared.width,
+      prepared.height,
+      buildProcessingTemplateForFile(fileId)
+    );
+    if (!preview.warped) {
+      throw new Error(
+        "The reference file could not be rectified. Adjust its corners or sides first."
+      );
+    }
+    return {
+      imageDataUrl: rgbaBufferToDataUrl(
+        preview.rgbaBuffer,
+        preview.width,
+        preview.height
+      ),
+      roiBoxes: deriveRoiBoxesFromTemplate(referenceTemplateRef.current)
+    };
+  };
+
+  const finalizeGlobalRoiCalibration = (
+    boxes: RoiBoxVisual[],
+    referenceFileId: string
+  ) => {
+    const nextTemplate = applyRoiBoxesToTemplate(
+      referenceTemplateRef.current,
+      boxes
+    );
+    referenceTemplateRef.current = nextTemplate;
+    setActiveTemplate(nextTemplate);
+
+    const referenceName =
+      queueRef.current.find((item) => item.id === referenceFileId)?.name ??
+      "reference file";
+    const reprocessCount = queueRef.current.length;
+    setQueue((current) => {
+      const nextQueue = current.map((item) => ({
+        ...item,
+        status: "queued" as const,
+        result: null,
+        detail: "Global ROI layout updated. Reprocessing...",
+        diagnostics: undefined
+      }));
+      queueRef.current = nextQueue;
+      return nextQueue;
+    });
+    setGlobalRoiDialogOpen(false);
+    setError(null);
+    setScanStage(
+      `ROI layout saved from ${referenceName}. Reprocessing ${reprocessCount} file${
+        reprocessCount === 1 ? "" : "s"
+      }...`
+    );
+    setAutoProcessTick((value) => value + 1);
   };
 
   const addFilesToQueue = (files: File[]) => {
@@ -754,7 +824,8 @@ export function MainScannerDashboard() {
       visualDialogOpen ||
       Boolean(overrideFileId) ||
       transformReview.isOpen ||
-      manualCornerDialogOpen;
+      manualCornerDialogOpen ||
+      globalRoiDialogOpen;
     if (!shouldLockBodyScroll || typeof window === "undefined") {
       return;
     }
@@ -781,7 +852,8 @@ export function MainScannerDashboard() {
     visualDialogOpen,
     overrideFileId,
     transformReview.isOpen,
-    manualCornerDialogOpen
+    manualCornerDialogOpen,
+    globalRoiDialogOpen
   ]);
   const answerSelectionByQuestion = useMemo(() => {
     const map = new Map<number, ChoiceLabel[]>();
@@ -1395,6 +1467,14 @@ export function MainScannerDashboard() {
                   ◩ Adjust Corners &amp; Sides
                 </button>
                 <button
+                  type="button"
+                  onClick={() => setGlobalRoiDialogOpen(true)}
+                  disabled={loading || queue.every((item) => !item.result)}
+                  title="Move or resize the global regions of interest"
+                >
+                  ⛶ Adjust ROIs
+                </button>
+                <button
                   className="excel-export-button"
                   onClick={() => void exportResultsToExcel()}
                   disabled={exportBusy || queue.every((item) => !item.result)}
@@ -1518,6 +1598,16 @@ export function MainScannerDashboard() {
         </section>
       </section>
 
+      {globalRoiDialogOpen ? (
+        <GlobalRoiCalibrationDialog
+          files={queue
+            .filter((item) => item.result)
+            .map((item) => ({ id: item.id, name: item.name }))}
+          onPrepare={prepareGlobalRoiReference}
+          onFinalize={finalizeGlobalRoiCalibration}
+          onClose={() => setGlobalRoiDialogOpen(false)}
+        />
+      ) : null}
       {manualCornerDialogOpen ? (
         <ManualCornerCalibrationDialog
           files={queue
