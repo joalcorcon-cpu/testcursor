@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   deriveManualCornerCalibration,
   type CornerId,
@@ -92,7 +92,6 @@ export function ManualCornerCalibrationDialog({
   const [sides, setSides] = useState<ManualSideCalibration>(defaultSides);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const stageRef = useRef<HTMLDivElement | null>(null);
   const adjustedCorners =
     reference && mode === "corner" && manualPoint
       ? { ...reference.points, [cornerId]: manualPoint }
@@ -184,11 +183,11 @@ export function ManualCornerCalibrationDialog({
     event: ReactPointerEvent<SVGLineElement>,
     side: SideId
   ) => {
-    const stage = stageRef.current;
-    if (!stage || !reference) {
+    const overlay = event.currentTarget.ownerSVGElement;
+    if (!overlay || !reference) {
       return;
     }
-    const rect = stage.getBoundingClientRect();
+    const rect = overlay.getBoundingClientRect();
     try {
       const sheetPoint = unprojectSourcePoint(reference.points, {
         x: (event.clientX - rect.left) / rect.width,
@@ -218,7 +217,7 @@ export function ManualCornerCalibrationDialog({
   };
 
   const movePoint = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const stage = stageRef.current;
+    const stage = event.currentTarget.parentElement;
     if (!stage) {
       return;
     }
@@ -358,7 +357,7 @@ export function ManualCornerCalibrationDialog({
               The outer quadrilateral and ROIs update dynamically.
             </p>
             <div className="manual-corner-canvas">
-              <div className="manual-corner-image-stage" ref={stageRef}>
+              <div className="manual-corner-image-stage">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={reference.imageDataUrl} alt="Unwarped reference answer sheet" />
                 {adjustedCorners ? (
