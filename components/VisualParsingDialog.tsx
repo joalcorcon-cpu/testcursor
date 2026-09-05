@@ -113,7 +113,7 @@ interface CornerWindowEditorProps {
   ) => void;
 }
 
-interface RoiBoxEditorProps {
+export interface RoiBoxEditorProps {
   baseImageDataUrl: string;
   initialRoiBoxes: RoiBoxVisual[];
   onApplyRoiBoxes: (boxes: RoiBoxVisual[]) => void | Promise<void>;
@@ -417,7 +417,7 @@ function CornerWindowEditor({
   );
 }
 
-function RoiBoxEditor({
+export function RoiBoxEditor({
   baseImageDataUrl,
   initialRoiBoxes,
   onApplyRoiBoxes,
