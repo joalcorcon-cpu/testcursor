@@ -790,6 +790,38 @@ pre {
   overscroll-behavior: contain;
 }
 
+.global-roi-dialog {
+  width: min(1100px, 100%);
+  max-height: calc(100dvh - (var(--safe-top) + var(--safe-bottom) + 2rem));
+  overflow: auto;
+  background: #ffffff;
+  border: 1px solid #d0d5dd;
+  border-radius: 12px;
+  padding: 1rem;
+  display: grid;
+  gap: 0.8rem;
+  overscroll-behavior: contain;
+}
+
+.global-roi-dialog h2,
+.global-roi-dialog p {
+  margin: 0;
+}
+
+.global-roi-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.global-roi-controls label {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
 .manual-corner-dialog h2,
 .manual-corner-dialog p {
   margin: 0;
@@ -1188,6 +1220,15 @@ pre {
     padding: 0.8rem;
   }
 
+  .global-roi-dialog {
+    border-radius: 10px;
+    padding: 0.8rem;
+  }
+
+  .global-roi-controls {
+    grid-template-columns: 1fr;
+  }
+
   .manual-corner-controls {
     grid-template-columns: 1fr;
   }
@@ -1410,6 +1451,7 @@ select {
 .issue-chip,
 .override-dialog,
 .manual-corner-dialog,
+.global-roi-dialog,
 .manual-corner-canvas,
 .transform-review-dialog,
 .transform-preview-pane,

@@ -1,45 +1,92 @@
-# OMR Web App (OpenCV.js, Local-Only)
+# AERC OMR Scanner App
 
-This project is a web-based OMR scanner for student answer sheets.
+Browser-based OMR scanning for student answer sheets using OpenCV.js.
 
-## What it does
+This app is **local-only** by design:
 
-- Uses **OpenCV.js** in the browser to preprocess and evaluate filled bubbles.
-- Uses **premade local template definitions** (no backend required).
-- Stores processing state in the browser session only.
-- Stores scan outputs as **JSON only** containing marks/shade information.
-- Includes a default template matching the provided 100-item answer sheet layout.
+- no Supabase/backend dependency
+- no server-side image processing
+- no image persistence by default
+- scan output is generated in-memory and exported as JSON/Excel
 
-## JSON output contract
+---
 
-Scan output contains only bubble-related data:
+## Core features
 
-- `student.studentId`: per-digit detected index + shade scores (0-9 rows); returns blank (`""`) when no dominant shade is detected
-- `student.examCode`: per-digit detected index + shade scores; returns blank (`""`) when no dominant shade is detected
-- `student.examSet`: selected set option(s) + shade scores/confidence
-- `answers[]`: per question selected option(s), shade scores, confidence, ambiguous flag
+- Multi-file upload queue with automatic processing
+- OpenCV.js pipeline running in a Web Worker (responsive UI)
+- Bundled template + corner snapshots loaded at startup
+- Perspective correction using corner detection + triangulation fallback
+- Review Scan dialog with interactive bubble overrides
+- Visual Parse dialog for step-by-step debugging
+- Queue-level warning/error chips and filtering
+- Excel export with:
+  - frozen header row
+  - auto-fit columns
+  - conditional formatting for empty required cells
 
-Default darkness threshold is `0.28`, and it is user-configurable in the scanner UI.
+---
 
-No raw image blobs are persisted by default.
+## Tech stack
 
-## Quick start
+- Next.js + React + TypeScript
+- OpenCV.js (client-side)
+- Web Worker runtime in `public/omr-worker.js`
+- Excel export via `exceljs`
 
-1. Install dependencies:
+---
 
-   ```bash
-   npm install
-   ```
+## Local development
 
-2. Start the app:
+Install:
 
-   ```bash
-   npm run dev
-   ```
+```bash
+npm install
+```
 
-## Reference images bundled in package
+Run dev server:
 
-The app ships with bundled references under `public/reference`:
+```bash
+npm run dev
+```
+
+Build production:
+
+```bash
+npm run build
+```
+
+Lint:
+
+```bash
+npm run lint
+```
+
+Tests:
+
+```bash
+npm test
+```
+
+---
+
+## App workflow
+
+1. Upload one or more sheet images (`png`, `jpg/jpeg`, `webp`)
+2. Files are queued and processed automatically
+3. Corner detection + warp + bubble scoring run in worker
+4. Results are shown per file with issues/warnings
+5. User can:
+   - review transformed overlay + detected answers
+   - override answers/ID/exam set
+   - open visual parse/template tools
+   - export accumulated results to Excel
+
+---
+
+## Template and references
+
+Bundled references are under `public/reference`:
 
 - `answer-sheet-reference.jpg`
 - `corners/tl-snapshot.jpg`
@@ -47,34 +94,95 @@ The app ships with bundled references under `public/reference`:
 - `corners/br-snapshot.jpg`
 - `corners/bl-snapshot.jpg`
 
-On page load, corner snapshots are preloaded from these bundled files and attached to the active template so scans immediately use quadrant `matchTemplate` corner detection.
-If one or two corners are not found, a rectangle-based triangulation fallback estimates missing corners before perspective transform.
+At page load, these snapshots are attached to the active template.
 
-## Review and correction flow
+Template defaults are defined in:
 
-- Upload and run scan on the home page.
-- Use **Open Visual Parse Steps** to inspect step-by-step parsing visuals (normalized image, grayscale, threshold map, corner detection, and ROI overlays).
-- In the visual dialog, corner search windows are draggable; **Apply Corner Boxes** stores these exact regions for corner-square search and perspective normalization on the next scan.
-- Apply manual corrections before save:
-  - student ID digits
-  - exam code digits
-  - exam set
-  - per-question selected choice(s)
-- Review low-confidence/ambiguous items and adjust as needed.
-- Save/override corrected JSON directly in the per-file dialog (frontend-only flow).
+- `lib/templates/defaultSheetTemplate.ts`
+- `lib/templates/bundledReferences.ts`
 
-## Notes
+ROI boxes are represented as normalized coordinates (0..1):
 
-- Current version performs threshold-based bubble scoring and returns JSON marks/shades.
-- Corner-marker perspective correction is enabled using the four corner blocks from the template.
-- Large photos are downscaled (max side ~800px) before processing to keep browser scans responsive.
-- OpenCV runtime loading now has a timeout guard to avoid indefinite scan hangs.
-- OMR scanning runs in a Web Worker so the UI stays responsive while processing.
-- If worker initialization fails/times out, the scan stops with an explicit error (no blocking main-thread fallback).
-- Active scans can be cancelled from the upload panel.
-- Uploaded photos are pre-validated and normalized to standard JPEG before scan to reduce decode incompatibilities.
-- OpenCV worker runtime is served locally (`/public/opencv-worker-runtime.js`) so loading is same-origin and more reliable.
-- Worker failures include stage-tagged diagnostic errors to speed up root-cause debugging.
-- Worker runtime is pre-warmed on page load to avoid first-scan initialization timeouts.
-- Worker lifecycle and scan-stage logs are emitted to browser console (`[OMR Worker]`, `[OMR WorkerThread]`).
-- For production, tune region coordinates and thresholds using real scans from your printer/camera setup.
+- `studentId`
+- `examCode`
+- `examSet`
+- `answersCol1`
+- `answersCol2`
+- `answersCol3`
+
+---
+
+## Calibration tools
+
+### 1) Corner + side calibration (global)
+
+Use **Adjust Corners & Sides** to:
+
+- pick a reference file
+- drag one selected inferred corner
+- drag top/right/bottom/left boundaries
+- preview the resulting quadrilateral + projected ROIs live
+- reprocess triangulated files with updated calibration
+
+### 2) ROI calibration (global)
+
+Use **Adjust ROIs** to:
+
+- pick a rectified reference file
+- move/resize all ROI groups in a dedicated UI
+- apply updated ROI geometry globally
+- reprocess the queue with the new layout
+
+### 3) Visual parse tools (per-file)
+
+Use **Visual Parse / Template** on queue items to inspect and tune:
+
+- corner search windows
+- corner snapshots
+- ROI draft placement and read-area overlays
+
+---
+
+## Result schema (JSON)
+
+Each processed file yields an `OMRResultJson`:
+
+- `student.studentId.detected`: array of `number | ""`
+- `student.examCode.detected`: array of `number | ""`
+- `student.examSet.selected`: choice array (`A-D`)
+- `answers[]`: selected choices + shade scores + confidence + ambiguity
+- `pipeline`: diagnostics (warp/corner stats, triangulation, angle/uneven flags)
+
+Type definitions are in `types/omr.ts`.
+
+Default darkness threshold is `0.28` (user-editable in UI).
+
+---
+
+## Important implementation notes
+
+- Images are normalized before scan (`lib/omr/prepareImageForScan.ts`)
+- Large uploads are downscaled to max side ~1600px for performance
+- Worker is prewarmed and guarded with timeouts
+- Progress stages and failures are surfaced in the queue
+- Dialogs lock background page scroll and are dismissible via backdrop click
+
+---
+
+## Deployment behavior
+
+- Branch pushes create Vercel preview deployments
+- Production URL updates only when changes are merged into `main`
+
+---
+
+## Repository map (high-value files)
+
+- `components/MainScannerDashboard.tsx` — primary scanner UI + queue logic
+- `components/VisualParsingDialog.tsx` — parse-step and ROI/corner editors
+- `components/ManualCornerCalibrationDialog.tsx` — corner/side calibration
+- `components/GlobalRoiCalibrationDialog.tsx` — global ROI calibration flow
+- `public/omr-worker.js` — worker pipeline (detection, warp, scoring)
+- `lib/omr/processSheetInWorker.ts` — worker messaging client
+- `lib/omr/roiCalibration.ts` — ROI derivation and application
+- `types/omr.ts` — core template/result contracts
